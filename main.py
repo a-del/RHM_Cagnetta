@@ -14,7 +14,8 @@ from functools import partial
 from init import init_fun
 from optim_loss import loss_func, regularize, opt_algo, measure_accuracy
 from utils import cpu_state_dict, args2train_test_sizes
-from observables import locality_measure, state2permutation_stability, state2clustering_error
+# from observables import locality_measure, state2permutation_stability, state2clustering_error   # will be needed if stability, locality or clustering_error
+
 
 def run(args):
 
@@ -290,14 +291,14 @@ def main():
     parser.add_argument("--ptr", type=float, default=0.8,
         help="Number of training point. If in [0, 1], fraction of training points w.r.t. total. If negative argument, P = |arg|*P_star",
     )
-    parser.add_argument("--pte", type=float, default=.2)
+    parser.add_argument("--pte", type=float, default=.2)   # proportion of data to keep for test set?
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--scale_batch_size", type=int, default=0)
 
     parser.add_argument("--background_noise", type=float, default=0)
 
     # Hierarchical dataset #
-    parser.add_argument("--num_features", type=int, default=8)
+    parser.add_argument("--num_features", type=int, default=8)   # v
     parser.add_argument("--m", type=int, default=2)
     parser.add_argument("--s", type=int, default=2)
     parser.add_argument("--num_layers", type=int, default=2)
@@ -308,18 +309,18 @@ def main():
 
     ### ARCHITECTURES ARGS ###
     parser.add_argument("--net", type=str, required=True)    # fcn or cnn
-    parser.add_argument("--random_features", type=int, default=0)
+    parser.add_argument("--random_features", type=int, default=0)   # for no training
 
     ## Nets params ##
     parser.add_argument("--width", type=int, default=64)
-    parser.add_argument("--net_layers", type=int, default=3)
+    parser.add_argument("--net_layers", type=int, default=3)   # TODO why default is wrong with num_layers default??
     parser.add_argument("--filter_size", type=int, default=2)
-    parser.add_argument("--stride", type=int, default=2)
+    # parser.add_argument("--stride", type=int, default=2)   # not used
     parser.add_argument("--batch_norm", type=int, default=0)
     parser.add_argument("--bias", type=int, default=1, help="for some archs, controls bias presence")
 
-    ## Auto-regression with Transformers ##
-    parser.add_argument("--pmask", type=float, default=.2)    # not for now
+    # ## Auto-regression with Transformers ##
+    # parser.add_argument("--pmask", type=float, default=.2)    # not for now
 
 
     ### ALGORITHM ARGS ###

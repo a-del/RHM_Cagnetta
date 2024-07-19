@@ -15,7 +15,7 @@ class NonOverlappingConv1d(nn.Module):
             )
         )
         if bias:
-            self.bias = nn.Parameter(torch.randn(1, out_channels, out_dim))
+            self.bias = nn.Parameter(torch.randn(1, out_channels, out_dim))   # why should there be a bias different for each location? That's not like a Conv??
         else:
             self.register_parameter("bias", None)
 
