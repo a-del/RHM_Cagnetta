@@ -33,6 +33,18 @@ class NonOverlappingConv1d(nn.Module):
         return x
 
 
+class NonOverlappingConv1dReLU(NonOverlappingConv1d):
+    def __init__(
+        self, input_channels, out_channels, out_dim, patch_size, bias=False
+    ):
+        super(NonOverlappingConv1dReLU, self).__init__(input_channels, out_channels, out_dim, patch_size, bias)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = super(NonOverlappingConv1dReLU, self).forward(x)
+        return self.relu(x)
+
+
 class CNN(nn.Module):
     def __init__(self, input_channels, h, out_dim, num_layers, patch_size=2, bias=False):
         super(CNN, self).__init__()
@@ -41,15 +53,12 @@ class CNN(nn.Module):
         self.d = d
 
         self.hier = nn.Sequential(
-            NonOverlappingConv1d(
+            NonOverlappingConv1dReLU(
                 input_channels, h, d // patch_size, patch_size, bias
             ),
-            nn.ReLU(),
-            *[nn.Sequential(
-                    NonOverlappingConv1d(
-                        h, h, d // patch_size ** (l + 1), patch_size, bias
-                    ),
-                    nn.ReLU(),
+            *[
+                NonOverlappingConv1dReLU(
+                    h, h, d // patch_size ** (l + 1), patch_size, bias
                 )
                 for l in range(1, num_layers)
             ],
