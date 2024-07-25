@@ -55,6 +55,9 @@ def model_initialization(args, input_dim, ch):
             patch_size=args.filter_size,
             out_dim=num_outputs,
             bias=args.bias,
+            layerwise=args.layerwise,
+            last_lin_layer=args.last_lin_layer,
+            loss=args.loss
         )
     elif args.net == "gcnn":
         net = GCNN(

@@ -202,7 +202,7 @@ class RandomHierarchyModel(Dataset):
                 self.x.long(),
                 num_classes=num_features if 'pairs' not in input_format else num_features ** 2
             ).float()
-            self.x = self.x.permute(0, 2, 1)
+            self.x = self.x.permute(0, 2, 1)   # batch, nb_channels, length
 
             if whitening:
                 inv_sqrt_n = (num_features - 1) ** -.5

@@ -27,7 +27,10 @@ def run(args):
     #     torch.set_default_dtype(torch.float16)
 
     best_acc = 0  # best test accuracy
-    criterion = partial(loss_func, args)
+    if args.loss == 'clapp_unsup':
+        criterion = None
+    else:
+        criterion = partial(loss_func, args)
 
     trainloader, testloader, net0 = init_fun(args)
 
@@ -186,14 +189,16 @@ def train(args, trainloader, net0, criterion):
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
             outputs = net(inputs)
-
-            loss = criterion(outputs, targets)
+            if args.net == "cnn":
+                loss = net.compute_loss(outputs, targets, criterion)
+            else:
+                loss = criterion(outputs, targets)
             train_loss += loss.detach().item()
             regularize(loss, net, args.weight_decay, reg_type=args.reg_type)
             loss.backward()
             optimizer.step()
 
-            correct, total = measure_accuracy(args, outputs, targets, correct, total)
+            correct, total = measure_accuracy(args, outputs[0], targets, correct, total)   # WARNING, even for layerwise only computes acc of last layer
 
             # during first epoch, save some sgd steps instead of after whole epoch
             if epoch < 10 and batch_idx in checkpoint_batches and batch_idx != (num_batches - 1):
@@ -224,12 +229,14 @@ def test(args, testloader, net, criterion, print_flag=True):
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             outputs = net(inputs)
-
-            loss = criterion(outputs, targets)
+            if args.net == "cnn":
+                loss = net.compute_loss(outputs, targets, criterion)
+            else:
+                loss = criterion(outputs, targets)
 
             test_loss += loss.item()
 
-            correct, total = measure_accuracy(args, outputs, targets, correct, total)
+            correct, total = measure_accuracy(args, outputs[0], targets, correct, total)   # WARNING, even for layerwise only computes acc of last layer
 
         if print_flag:
             print(
@@ -313,11 +320,13 @@ def main():
 
     ## Nets params ##
     parser.add_argument("--width", type=int, default=64)
-    parser.add_argument("--net_layers", type=int, default=3)   # TODO why default is wrong with num_layers default??
+    parser.add_argument("--net_layers", type=int, default=2)   # TODO why default is wrong with num_layers default??
     parser.add_argument("--filter_size", type=int, default=2)
     # parser.add_argument("--stride", type=int, default=2)   # not used
     parser.add_argument("--batch_norm", type=int, default=0)
     parser.add_argument("--bias", type=int, default=1, help="for some archs, controls bias presence")
+    parser.add_argument("--last_lin_layer", type=int, default=1,
+                        help="for cnn, whether to use self.beta, which is a linear layer from width to num_features")
 
     # ## Auto-regression with Transformers ##
     # parser.add_argument("--pmask", type=float, default=.2)    # not for now
@@ -335,6 +344,7 @@ def main():
     parser.add_argument("--zero_loss_epochs", type=int, default=0)
     parser.add_argument("--zero_loss_threshold", type=float, default=0.01)
     parser.add_argument("--rescale_epochs", type=int, default=0)
+    parser.add_argument("--layerwise", type=int, default=0)
 
     parser.add_argument(
         "--alpha", default=1.0, type=float, help="alpha-trick parameter"
