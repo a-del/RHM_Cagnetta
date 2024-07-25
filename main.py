@@ -114,9 +114,9 @@ def run(args):
             "best": best,
         }
 
-        yield out
+        yield out   # this is just so it is saved to pickle
 
-        if (losstr == 0 and args.loss == 'hinge') or (losstr < args.zero_loss_threshold and args.loss == 'cross_entropy'):
+        if (losstr == 0 and args.loss == 'hinge') or (losstr < args.zero_loss_threshold and args.loss in ['cross_entropy', 'clapp_unsup']):
             trloss_flag += 1
             if trloss_flag >= args.zero_loss_epochs:
                 break
@@ -344,7 +344,7 @@ def main():
     parser.add_argument("--zero_loss_epochs", type=int, default=0)
     parser.add_argument("--zero_loss_threshold", type=float, default=0.01)
     parser.add_argument("--rescale_epochs", type=int, default=0)
-    parser.add_argument("--layerwise", type=int, default=0)
+    parser.add_argument("--layerwise", type=int, default=-1)
 
     parser.add_argument(
         "--alpha", default=1.0, type=float, help="alpha-trick parameter"
@@ -385,6 +385,9 @@ def main():
     if args.m == -1:
         args.m = args.num_features
 
+    if args.layerwise == -1:
+        args.layerwise = 1 if args.loss == "clapp_unsup" else 0
+
     # define train and test sets sizes
 
     args.ptr, args.pte = args2train_test_sizes(args)
@@ -394,7 +397,7 @@ def main():
     try:
         for data in run(args):
             with open(args.output, "wb") as handle:
-                pickle.dump(args, handle)
+                pickle.dump(args, handle)   # a bit useless as args is also in data
                 pickle.dump(data, handle)
     except:
         os.remove(args.output)
