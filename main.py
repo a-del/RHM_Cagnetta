@@ -403,7 +403,7 @@ def main():
 
     args.ptr, args.pte = args2train_test_sizes(args)
 
-    with open(args.output, "wb") as handle:
+    with open(args.output+".pk", "wb") as handle:
         pickle.dump(args, handle)
     try:
         trainloader, testloader, net0, criterion = set_up(args)
