@@ -17,7 +17,7 @@ from utils import cpu_state_dict, args2train_test_sizes
 # from observables import locality_measure, state2permutation_stability, state2clustering_error   # will be needed if stability, locality or clustering_error
 
 
-def run(args):
+def run(args, trainloader, testloader, net0, criterion):
 
     # if args.dtype == 'float64':
     #     torch.set_default_dtype(torch.float64)
@@ -27,12 +27,6 @@ def run(args):
     #     torch.set_default_dtype(torch.float16)
 
     best_acc = 0  # best test accuracy
-    if args.loss == 'clapp_unsup':
-        criterion = None
-    else:
-        criterion = partial(loss_func, args)
-
-    trainloader, testloader, net0 = init_fun(args)
 
     # scale batch size when larger than train-set size
     if (args.batch_size >= args.ptr) and args.scale_batch_size:
@@ -114,7 +108,7 @@ def run(args):
             "best": best,
         }
 
-        yield out   # this is just so it is saved to pickle
+        yield out, net   # this is just so it is saved to pickle
 
         if (losstr == 0 and args.loss == 'hinge') or (losstr < args.zero_loss_threshold and args.loss in ['cross_entropy', 'clapp_unsup']):
             trloss_flag += 1
@@ -157,7 +151,24 @@ def run(args):
         "weight_evo": wo,
         'avg_epoch_time': avg_epoch_time,
     }
-    yield out
+    yield out, net
+
+
+def set_up(args, net=True, crit=True):
+    if crit:
+        if args.loss == 'clapp_unsup':
+            criterion = None
+        else:
+            criterion = partial(loss_func, args)
+    else:
+        criterion = None
+
+    if net:
+        trainloader, testloader, net0 = init_fun(args)
+    else:
+        trainloader, testloader, net0 = None, None, None
+
+    return trainloader, testloader, net0, criterion
 
 
 def train(args, trainloader, net0, criterion):
@@ -395,12 +406,29 @@ def main():
     with open(args.output, "wb") as handle:
         pickle.dump(args, handle)
     try:
-        for data in run(args):
-            with open(args.output, "wb") as handle:
+        trainloader, testloader, net0, criterion = set_up(args)
+        for data in run(args, trainloader, testloader, net0, criterion):
+            with open(args.output+".pk", "wb") as handle:
                 pickle.dump(args, handle)   # a bit useless as args is also in data
-                pickle.dump(data, handle)
+                pickle.dump(data[0], handle)
+        if args.loss == "clapp_unsup":
+            print("\n\nDone training encoder; now training classifier!!\n\n")
+            args.output = os.path.join(os.path.dirname(args.output), os.path.basename(args.output)+"_clf")
+            args.loss = "cross_entropy"
+            net = data[1]
+            net.evaluating = True
+            net.losses = None
+            net.layerwise = False
+            net.initialize_beta()   # Todo should regroup at least these 3 into a method of net??
+            _, _, _, criterion = set_up(args, net=False)
+            # TODO need to change anything else??
+            # Todo should have separate lr and early stopping criteria?
+            for data in run(args, trainloader, testloader, net, criterion):
+                with open(args.output + ".pk", "wb") as handle:
+                    pickle.dump(args, handle)  # a bit useless as args is also in data
+                    pickle.dump(data[0], handle)
     except:
-        os.remove(args.output)
+        os.remove(args.output + ".pk")
         raise
 
 

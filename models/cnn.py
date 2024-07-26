@@ -56,6 +56,8 @@ class CNN(nn.Module):
         d = patch_size ** num_layers
         self.d = d
         self.layerwise = layerwise
+        self.h = h
+        self.out_dim_beta = out_dim
 
         self.hier = nn.Sequential(
             NonOverlappingConv1dReLU(
@@ -69,7 +71,7 @@ class CNN(nn.Module):
             ],
         )
         if last_lin_layer:
-            self.beta = nn.Parameter(torch.randn(h, out_dim))
+            self.initialize_beta()
         else:
             self.beta = None
 
@@ -87,6 +89,11 @@ class CNN(nn.Module):
                 raise NotImplementedError("Layerwise for loss other than CLAPP not implemented.")
             self.losses = None
 
+        self.evaluating = False
+
+    def initialize_beta(self):
+        self.beta = nn.Parameter(torch.randn(self.h, self.out_dim_beta))
+
     def forward(self, x):
         outs = []
         if self.layerwise:
@@ -99,6 +106,8 @@ class CNN(nn.Module):
             outs.append(y)
         y = y.mean(dim=[-1])   # last dimension (space) should already be of size 1, so equivalent to squeeze(-1)
         if self.beta is not None:
+            if self.evaluating:
+                y = y.detach()
             y = y @ self.beta / self.beta.size(0)   # @ is .matmul
             outs.append(y)
         return y, outs
