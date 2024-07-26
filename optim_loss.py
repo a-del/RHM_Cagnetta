@@ -45,15 +45,17 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
             raise NotImplementedError("Should do it")
         self.masks = torch.tensor(rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
                                              size=(input_size,), replace=False))   # Todo update this for k>1
-        self.batch_mask = torch.vmap(partial(torch.masked_select, mask=self.masks))
-        self.batch_anti_mask = torch.vmap(partial(torch.masked_select, mask=~self.masks))
 
-    def forward(self, reprs, y):
+    def forward(self, reprs: torch.Tensor, y):
         # reprs: b, chans, len
+        device = reprs.get_device()
+        mask = self.masks.to(device)
+        batch_mask = torch.vmap(partial(torch.masked_select, mask=mask))
+        batch_anti_mask = torch.vmap(partial(torch.masked_select, mask=~mask))
         b = reprs.size(0)
         reprs = reprs.reshape(b, -1)
-        z = self.batch_mask(reprs)
-        c = self.batch_anti_mask(reprs)
+        z = batch_mask(reprs)
+        c = batch_anti_mask(reprs)
         zhat = self.Wpred[0](c.reshape(b, self.c_size))    # Todo update this for k>1
 
         # positive samples:
