@@ -108,7 +108,7 @@ class CNN(nn.Module):
         if self.beta is not None:
             if self.evaluating:
                 y = y.detach()
-            y = y @ self.beta / self.beta.size(0)   # @ is .matmul
+            y = y @ self.beta.to(y.get_device()) / self.beta.size(0)   # @ is .matmul   # does this .to(device) work? Do the gradients get properly computed?
             outs.append(y)
         return y, outs
 
