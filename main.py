@@ -301,7 +301,7 @@ def weights_evolution(f0, f):
     for k in s:
         nd += (s0[k] - s[k]).norm() / s0[k].norm()
     nd /= len(s)
-    return nd
+    return nd.item()
 
 
 def main():
