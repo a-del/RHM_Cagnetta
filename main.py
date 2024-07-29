@@ -27,6 +27,7 @@ def run(args, trainloader, testloader, net0, criterion):
     #     torch.set_default_dtype(torch.float16)
 
     best_acc = 0  # best test accuracy
+    best_loss = 1e6
 
     # scale batch size when larger than train-set size
     if (args.batch_size >= args.ptr) and args.scale_batch_size:
@@ -86,7 +87,17 @@ def run(args, trainloader, testloader, net0, criterion):
             dynamics.append(
                 {"acc": acc, "epoch": epoch, "net": cpu_state_dict(net)}
             )
-        if acc > best_acc:
+        if args.loss == "clapp_unsup" and losstr < best_loss:
+            best["loss"] = losstr
+            best["epoch"] = epoch
+            if args.save_best_net:
+                best["net"] = cpu_state_dict(net)
+            # if args.save_dynamics:
+            #     dynamics.append(best)
+            best_loss = losstr
+            print(f"BEST LOSS ({losstr:.02g}) at epoch {epoch:.02f} !!", flush=True)
+
+        elif args.loss != "clapp_unsup" and acc > best_acc:
             best["acc"] = acc
             best["epoch"] = epoch
             if args.save_best_net:
@@ -165,6 +176,8 @@ def set_up(args, net=True, crit=True):
 
     if net:
         trainloader, testloader, net0 = init_fun(args)
+        if args.loss == "clapp_unsup":
+            testloader = None
     else:
         trainloader, testloader, net0 = None, None, None
 
