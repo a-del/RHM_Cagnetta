@@ -104,35 +104,35 @@ def main():
         args.layerwise = 1 if args.loss == "clapp_unsup" else 0
 
 
-    try:
-        with open(args.output + ".pk", "rb") as handle:
-            args_saved = pickle.load(handle)   # TODO could reload non-given params from this
-            data = pickle.load(handle)
-        args_saved.update(args)
-        args = args_saved
-        args.ptr, args.pte = args2train_test_sizes(args)
-        args.loss = "cross_entropy"
-        args.last_lin_layer = 0
-        trainloader, testloader, net0, criterion = set_up(args)
-        args.output = os.path.join(os.path.dirname(args.output), os.path.basename(args.output)+"_clfe")
-        if "best" in data:
-            state_dict = data["best"]
-        else:
-            state_dict = data["last"]
-        net0.load_state_dict(state_dict)
-        net0.evaluating = True
-        net0.layerwise = False   # Todo should regroup at least these 2 into a method of net??
-        # TODO need to change anything else??
-        for data in run(args, trainloader, testloader, net0, criterion):
-            with open(args.output + ".pk", "wb") as handle:
-                pickle.dump(args, handle)  # a bit useless as args is also in data
-                pickle.dump(data[0], handle)
-    except:
-        try:
-            os.remove(args.output + ".pk")
-        except FileNotFoundError:
-            pass
-        raise
+    with open(args.output + ".pk", "rb") as handle:
+        args_saved = pickle.load(handle)
+        data = pickle.load(handle)
+    args_saved = vars(args_saved)
+    args_saved.update(vars(args))
+    args = argparse.Namespace(**args_saved)   # or could define a special function to update() directly namespaces
+    args.ptr, args.pte = args2train_test_sizes(args)
+    args.loss = "cross_entropy"
+    args.last_lin_layer = 0
+    trainloader, testloader, net0, criterion = set_up(args)
+    args.output = os.path.join(os.path.dirname(args.output), os.path.basename(args.output)+"_clfe")
+    if "best" in data:
+        state_dict = data["best"]["net"]
+    else:
+        state_dict = data["last"]
+    tbdel = []
+    for k in state_dict.keys():
+        if k.startswith("losses"):
+            tbdel.append(k)   # cannot delete keys during iteration
+    for k in tbdel:
+        del state_dict[k]
+    net0.load_state_dict(state_dict)
+    net0.evaluating = True
+    net0.layerwise = False   # Todo should regroup at least these 2 into a method of net??
+    # TODO need to change anything else??
+    for data in run(args, trainloader, testloader, net0, criterion):
+        with open(args.output + ".pk", "wb") as handle:
+            pickle.dump(args, handle)  # a bit useless as args is also in data
+            pickle.dump(data[0], handle)
 
 
 if __name__ == "__main__":
