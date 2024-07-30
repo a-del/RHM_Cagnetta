@@ -44,11 +44,6 @@ def main():
     parser.add_argument("--scale_batch_size", type=int, default=0)
 
 
-    ### ARCHITECTURES ARGS ###
-    parser.add_argument("--net", type=str, default="cnn")
-    parser.add_argument("--random_features", type=int, default=0)   # for no training
-
-
     # ## Auto-regression with Transformers ##
     # parser.add_argument("--pmask", type=float, default=.2)    # not for now
 
