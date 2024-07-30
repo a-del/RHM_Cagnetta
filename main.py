@@ -351,9 +351,6 @@ def main():
     parser.add_argument("--last_lin_layer", type=int, default=1,
                         help="for cnn, whether to use self.beta, which is a linear layer from width to num_features")
 
-    # ## Auto-regression with Transformers ##
-    # parser.add_argument("--pmask", type=float, default=.2)    # not for now
-
 
     ### ALGORITHM ARGS ###
     parser.add_argument("--loss", type=str, default="cross_entropy")
@@ -372,6 +369,18 @@ def main():
     parser.add_argument(
         "--alpha", default=1.0, type=float, help="alpha-trick parameter"
     )
+    
+    ### ALGORITHM ARGS FOR CLASSIFIER IF SEPARATE ###
+    parser.add_argument("--eval_optim", type=str, default="sgd")
+    parser.add_argument("--eval_scheduler", type=str, default="cosineannealing")
+    parser.add_argument("--eval_lr", default=0.1, type=float, help="learning rate")
+    parser.add_argument("--eval_momentum", default=0.9, type=float, help="momentum")
+    parser.add_argument("--eval_weight_decay", default=5e-4, type=float)
+    parser.add_argument("--eval_reg_type", default='l2', type=str)
+    parser.add_argument("--eval_epochs", type=int, default=250)
+    parser.add_argument("--eval_zero_loss_epochs", type=int, default=5)
+    parser.add_argument("--eval_zero_loss_threshold", type=float, default=0.01)
+    parser.add_argument("--eval_rescale_epochs", type=int, default=0)
 
     ### Observables ###
     # how to use: 1 to compute stability every checkpoint; 2 at end of training. Default 0.
@@ -432,6 +441,10 @@ def main():
             net.losses = None
             net.layerwise = False
             net.initialize_beta()   # Todo should regroup at least these 3 into a method of net??
+            args_to_change = ["eval_optim", "eval_scheduler", "eval_lr", "eval_momentum", "eval_weight_decay",
+                              "eval_reg_type", "eval_epochs", "eval_zero_loss_epochs", "eval_zero_loss_threshold", "eval_rescale_epochs"]
+            for a in args_to_change:
+                setattr(args, a[5:], getattr(args, a))
             _, _, _, criterion = set_up(args, net=False)
             # TODO need to change anything else??
             # Todo should have separate lr and early stopping criteria?

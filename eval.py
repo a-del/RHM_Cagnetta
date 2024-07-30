@@ -81,6 +81,7 @@ def main():
     ## saving path ##
     parser.add_argument("--pickle", type=str, required=False, default="None")
     parser.add_argument("--output", type=str, required=False, default="None")
+    parser.add_argument("--output_sfx", type=str, required=False, default=None)
     args = parser.parse_args()
 
     if args.pickle == "None":
@@ -109,7 +110,8 @@ def main():
     args.loss = "cross_entropy"
     args.last_lin_layer = 0
     trainloader, testloader, net0, criterion = set_up(args)
-    args.output = os.path.join(os.path.dirname(args.output), os.path.basename(args.output)+"_clfe")
+    args.output = os.path.join(os.path.dirname(args.output), os.path.basename(args.output)+"_clfe"+(
+        f"_{args.output_sfx}" if args.output_sfx else ''))
     if "best" in data:
         state_dict = data["best"]["net"]
     else:

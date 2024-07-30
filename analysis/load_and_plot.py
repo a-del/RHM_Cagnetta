@@ -2,6 +2,7 @@ import os
 import pickle as pk
 import numpy as np
 import pandas as pd
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 
@@ -31,16 +32,18 @@ def get_all_data(path):
 
 def load_and_plot_all(path="logs/"):
     encoder_runs, eval_runs = get_all_data(path)
-    plot_all_train_losses(encoder_runs, title="encoder")
-    plot_all_train_losses(eval_runs, title="decoder")
-    plot_all_test_errors(eval_runs)
+    col_fun = setup_colors(encoder_runs)
+    plot_all_train_losses(encoder_runs, title="encoder", col_fun=col_fun)
+    plot_all_train_losses(eval_runs, title="decoder", col_fun=col_fun)
+    plot_all_test_errors(eval_runs, col_fun=col_fun)
     plt.show()
 
 
-def plot_all_train_losses(df:pd.DataFrame, title=None):
+def plot_all_train_losses(df:pd.DataFrame, title=None, col_fun=None):
     fig, ax = plt.subplots()
     for _, row in df.iterrows():
-        ax.plot(row.epochs, row.train_loss, label=row["name"])
+        col = col_fun(row["name"]) if col_fun is not None else None
+        ax.plot(row.epochs, row.train_loss, label=row["name"], color=col)
     ax.set_xlabel("Epochs")
     ax.set_ylabel("Train loss")
     ax.legend()
@@ -48,16 +51,24 @@ def plot_all_train_losses(df:pd.DataFrame, title=None):
     ax.set_title(title)
 
 
-def plot_all_test_errors(df:pd.DataFrame, title=None):
+def plot_all_test_errors(df:pd.DataFrame, title=None, col_fun=None):
     fig, ax = plt.subplots()
     for _, row in df.iterrows():
+        col = col_fun(row["name"]) if col_fun is not None else None
         test_epochs = [ep for ep in row.epochs if not ep%10]
-        ax.plot(test_epochs, row.test_err, label=row["name"])
-        ax.scatter([df["best_ep"]], [df["best_acc"]], marker="*")
+        ax.plot(test_epochs, row.test_err, label=row["name"], color=col)
+        ax.scatter([row.best_ep], [100 - row.best_acc], marker="*", c=col)
     ax.legend()
     ax.set_xlabel("Epochs")
     ax.set_ylabel("Test error (%)")
     ax.set_title(title)
+
+def setup_colors(df):
+    colormap = mpl.colormaps["tab20"]
+    col_dict = {row["name"]: colormap(i%20) for i, row in df.iterrows()}
+    def col_fun(name):
+        return col_dict[name.split("_clf")[0]]
+    return col_fun
 
 
 
