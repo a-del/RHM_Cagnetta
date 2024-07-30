@@ -72,10 +72,7 @@ def run(args, trainloader, testloader, net0, criterion):
 
         if epoch % 10 != 0 and not args.save_dynamics: continue
 
-        if testloader:
-            acc = test(args, testloader, net, criterion, print_flag=epoch % 5 == 0)
-        else:
-            acc = torch.nan
+        acc = test(args, testloader, net, criterion, print_flag=epoch % 5 == 0)
         terr.append(100 - acc)
 
         if args.save_dynamics:
@@ -176,8 +173,8 @@ def set_up(args, net=True, crit=True):
 
     if net:
         trainloader, testloader, net0 = init_fun(args)
-        if args.loss == "clapp_unsup":
-            testloader = None
+        # if args.loss == "clapp_unsup":
+        #     testloader = None
     else:
         trainloader, testloader, net0 = None, None, None
 
@@ -244,6 +241,8 @@ def train(args, trainloader, net0, criterion):
 
 
 def test(args, testloader, net, criterion, print_flag=True):
+    if args.loss == "clapp_unsup":
+        return torch.nan
 
     net.eval()
     test_loss = 0
@@ -440,8 +439,10 @@ def main():
                 with open(args.output + ".pk", "wb") as handle:
                     pickle.dump(args, handle)  # a bit useless as args is also in data
                     pickle.dump(data[0], handle)
+        print("Done!!\n\n\n")
     except:
-        os.remove(args.output + ".pk")
+        # os.remove(args.output + ".pk")
+        print("Fail!!\n\n\n")
         raise
 
 
