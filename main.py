@@ -365,6 +365,7 @@ def main():
     parser.add_argument("--zero_loss_threshold", type=float, default=0.01)
     parser.add_argument("--rescale_epochs", type=int, default=0)
     parser.add_argument("--layerwise", type=int, default=-1)
+    parser.add_argument("--k_predictions", type=int, default=1, help="for clapp only, how many predictions (masks)")
 
     parser.add_argument(
         "--alpha", default=1.0, type=float, help="alpha-trick parameter"

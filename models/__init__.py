@@ -57,7 +57,8 @@ def model_initialization(args, input_dim, ch):
             bias=args.bias,
             layerwise=args.layerwise,
             last_lin_layer=args.last_lin_layer,
-            loss=args.loss
+            loss=args.loss,
+            k_predictions=args.k_predictions
         )
     elif args.net == "gcnn":
         net = GCNN(

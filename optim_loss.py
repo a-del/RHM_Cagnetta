@@ -35,41 +35,45 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
     Computes the CLAPP loss using no labels.
     To avoid the use of labels, the half-masked encodings are used to predict the complementary-masked encodings.
     """
-    def __init__(self, c_in, leng, k_predictions=1, either_pos_or_neg=True):
+    def __init__(self, c_in, leng, k_predictions=1, either_pos_or_neg=False):
         super().__init__()
         input_size = c_in*leng
         self.z_size = input_size // 2
         self.c_size = input_size - self.z_size
         self.Wpred = nn.ModuleList(nn.Linear(self.c_size, self.z_size, bias=False) for _ in range(k_predictions))
-        if k_predictions > 1:
-            raise NotImplementedError("Should do it")
-        self.masks = torch.tensor(rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
-                                             size=(input_size,), replace=False))   # Todo update this for k>1
+        self.k_predictions = k_predictions
+        self.masks = [torch.tensor(rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
+                                             size=(input_size,), replace=False)) for _ in range(self.k_predictions)]
 
     def forward(self, reprs: torch.Tensor, y):
         # reprs: b, chans, len
+        tot_loss = 0
+
         device = reprs.get_device()
-        mask = self.masks.to(device)
-        batch_mask = torch.vmap(partial(torch.masked_select, mask=mask))
-        batch_anti_mask = torch.vmap(partial(torch.masked_select, mask=~mask))
         b = reprs.size(0)
         reprs = reprs.reshape(b, -1)
-        z = batch_mask(reprs)
-        c = batch_anti_mask(reprs)
-        zhat = self.Wpred[0](c.reshape(b, self.c_size))    # Todo update this for k>1
+        for k in range(self.k_predictions):
+            mask = self.masks[k]
+            if device >= 0:
+                mask = mask.to(device)
+            batch_mask = torch.vmap(partial(torch.masked_select, mask=mask))
+            batch_anti_mask = torch.vmap(partial(torch.masked_select, mask=~mask))
+            z = batch_mask(reprs)
+            c = batch_anti_mask(reprs)
+            zhat = self.Wpred[0](c.reshape(b, self.c_size))
 
-        # positive samples:
-        u_pos = torch.einsum("bij,bjk->b", z.reshape(b, 1, self.z_size), zhat.unsqueeze(2))   # b,
-        loss_pos = ((1 - u_pos).relu()).mean()
+            # positive samples:
+            u_pos = torch.einsum("bij,bjk->b", z.reshape(b, 1, self.z_size), zhat.unsqueeze(2))   # b,
+            loss_pos = ((1 - u_pos).relu()).mean()
 
-        # negative samples: shuffle zhat along batch dimension such that predictions are across 2 different words
-        idx = torch.randperm(b)
-        zhat_shuf = zhat[idx]
-        u_neg = torch.einsum("bij,bjk->b", z.reshape(b, 1, self.z_size), zhat_shuf.unsqueeze(2))   # b,
-        loss_neg = ((1 + u_neg).relu()).mean()
+            # negative samples: shuffle zhat along batch dimension such that predictions are across 2 different words
+            idx = torch.randperm(b)
+            zhat_shuf = zhat[idx]
+            u_neg = torch.einsum("bij,bjk->b", z.reshape(b, 1, self.z_size), zhat_shuf.unsqueeze(2))   # b,
+            loss_neg = ((1 + u_neg).relu()).mean()
 
-        loss = (loss_pos + loss_neg) / 2
-        return loss
+            tot_loss = tot_loss + (loss_pos + loss_neg) / 2
+        return tot_loss / self.k_predictions   # Todo is avg ok, or want just sum?
 
 
 def regularize(loss, f, l, reg_type):

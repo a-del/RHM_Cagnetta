@@ -50,7 +50,7 @@ class NonOverlappingConv1dReLU(NonOverlappingConv1d):
 
 class CNN(nn.Module):
     def __init__(self, input_channels, h, out_dim, num_layers, patch_size=2, bias=False, layerwise=False,
-                 last_lin_layer=True, loss=None):
+                 last_lin_layer=True, loss=None, k_predictions=1):
         super(CNN, self).__init__()
 
         d = patch_size ** num_layers
@@ -80,10 +80,11 @@ class CNN(nn.Module):
             if last_lin_layer:
                 raise NotImplementedError
             if self.layerwise:
-                self.losses = nn.ModuleList([CLAPPUnsupervisedHalfMasking(h, d // patch_size**(l+1))
+                self.losses = nn.ModuleList([CLAPPUnsupervisedHalfMasking(
+                    h, d // patch_size**(l+1), k_predictions=k_predictions)
                                              for l in range(0, num_layers)])
             else:
-                self.losses = CLAPPUnsupervisedHalfMasking(h, d // (patch_size**num_layers))
+                self.losses = CLAPPUnsupervisedHalfMasking(h, d // (patch_size**num_layers), k_predictions=k_predictions)
         else:
             if self.layerwise:
                 raise NotImplementedError("Layerwise for loss other than CLAPP not implemented.")
@@ -108,7 +109,12 @@ class CNN(nn.Module):
         if self.beta is not None:
             if self.evaluating:
                 y = y.detach()
-            y = y @ self.beta.to(y.get_device()) / self.beta.size(0)   # @ is .matmul   # does this .to(device) work? Do the gradients get properly computed?
+            dev = y.get_device()
+            if dev >= 0:
+                beta = self.beta.to(dev)
+            else:
+                beta = self.beta
+            y = y @ beta / beta.size(0)   # @ is .matmul   # does this .to(device) work? Do the gradients get properly computed?
             outs.append(y)
         return y, outs
 
