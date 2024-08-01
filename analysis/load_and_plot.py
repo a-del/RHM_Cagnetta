@@ -87,10 +87,10 @@ def smoothen(vals, width=20):
 
 def plot_all_train_losses(df:pd.DataFrame, title=None, col_fun=None, smooth=20):
     # smooth=1 for no smoothing; smooth is width of averaging window
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(15,10))
     i = 0
     for _, row in df.iterrows():
-        col, a, ls = col_fun(row) if col_fun is not None else None, None, None
+        col, a, ls = col_fun(row) if col_fun is not None else (None, None, None)
         ax.plot(row.epochs_lst, smoothen(row.train_loss, width=smooth), label=row["name"], color=col, linewidth=1, alpha=a, linestyle=ls)   # [x+0.002*i for x in row.train_loss]
         i += 1
     ax.set_xlabel("Epochs")
@@ -98,12 +98,13 @@ def plot_all_train_losses(df:pd.DataFrame, title=None, col_fun=None, smooth=20):
     ax.legend()
     ax.set_yscale('log')
     ax.set_title(title)
+    return fig, ax
 
 
 def plot_all_test_errors(df:pd.DataFrame, title=None, col_fun=None):
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(15,10))
     for _, row in df.iterrows():
-        col, a, ls = col_fun(row) if col_fun is not None else None, None, None
+        col, a, ls = col_fun(row) if col_fun is not None else (None, None, None)
         test_epochs = [ep for ep in row.epochs_lst if not ep%10]
         ax.plot(test_epochs, row.test_err, label=row["name"], color=col, alpha=a, linestyle=ls)
         ax.scatter([row.best_ep], [100 - row.best_acc], marker="*", color=col, alpha=a)
@@ -111,6 +112,7 @@ def plot_all_test_errors(df:pd.DataFrame, title=None, col_fun=None):
     ax.set_xlabel("Epochs")
     ax.set_ylabel("Test error (%)")
     ax.set_title(title)
+    return fig, ax
 
 
 def setup_colors(df):
@@ -147,5 +149,5 @@ def setup_colors_dec(df):
 
 
 if __name__ == '__main__':
-    # load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/test_better", save=True)
-    load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/figure", load=True)
+    load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/test_better", save=True)
+    # load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/figure", load=True)
