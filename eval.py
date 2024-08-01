@@ -114,8 +114,10 @@ def main():
         f"_{args.output_sfx}" if args.output_sfx else ''))
     if "best" in data:
         state_dict = data["best"]["net"]
+        args.epoch_loaded = data["best"]["epoch"]
     else:
         state_dict = data["last"]
+        args.epoch_loaded = data["epochs_lst"][-1]
     tbdel = []
     for k in state_dict.keys():
         if k.startswith("losses"):
