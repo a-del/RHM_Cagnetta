@@ -65,6 +65,8 @@ def main():
     parser.add_argument(
         "--alpha", default=1.0, type=float, help="alpha-trick parameter"
     )
+    parser.add_argument("--k_predictions", type=int, default=1, help="for clapp only, how many predictions (masks)")
+
 
     ### Observables ###
     # how to use: 1 to compute stability every checkpoint; 2 at end of training. Default 0.
