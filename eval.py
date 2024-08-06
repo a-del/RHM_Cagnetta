@@ -110,7 +110,7 @@ def main():
     args = argparse.Namespace(**args_saved)   # or could define a special function to update() directly namespaces
     args.ptr, args.pte = args2train_test_sizes(args)
     args.loss = "cross_entropy"
-    args.last_lin_layer = 0
+    args.last_lin_layer = 0   # need this now because beta cannot be loaded from state_dict; eval_mode() creates beta
     trainloader, testloader, net0, criterion = set_up(args)
     args.output = os.path.join(os.path.dirname(args.output), os.path.basename(args.output)+"_clfe"+(
         f"_{args.output_sfx}" if args.output_sfx else ''))
@@ -127,9 +127,7 @@ def main():
     for k in tbdel:
         del state_dict[k]
     net0.load_state_dict(state_dict)
-    net0.evaluating = True
-    net0.layerwise = False   # Todo should regroup at least these 2 into a method of net??
-    # TODO need to change anything else??
+    net0.eval_mode()
     for data in run(args, trainloader, testloader, net0, criterion):
         with open(args.output + ".pk", "wb") as handle:
             pickle.dump(args, handle)  # a bit useless as args is also in data

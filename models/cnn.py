@@ -133,6 +133,18 @@ class CNN(nn.Module):
                 loss = self.losses(outs[0], y)
         return loss
 
+    def eval_mode(self, on=True):
+        if not on:
+            raise NotImplementedError("Turning eval mode off not implemented")
+        if self.beta is None:
+            self.initialize_beta()
+        else:
+            raise ValueError("Is it ok that beta already exists??")
+
+        self.evaluating = True
+        self.layerwise = False
+        self.losses = None
+
 
 class CNNLayerWise(nn.Module):    # only for patch_size = 2!!
     """

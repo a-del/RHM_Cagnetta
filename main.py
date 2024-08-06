@@ -438,10 +438,7 @@ def main():
             args.output = os.path.join(os.path.dirname(args.output), os.path.basename(args.output)+"_clf")
             args.loss = "cross_entropy"
             net = data[1]
-            net.evaluating = True
-            net.losses = None
-            net.layerwise = False
-            net.initialize_beta()   # Todo should regroup at least these 3 into a method of net??
+            net.eval_mode()
             args_to_change = ["eval_optim", "eval_scheduler", "eval_lr", "eval_momentum", "eval_weight_decay",
                               "eval_reg_type", "eval_epochs", "eval_zero_loss_epochs", "eval_zero_loss_threshold", "eval_rescale_epochs"]
             for a in args_to_change:
