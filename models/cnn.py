@@ -56,16 +56,19 @@ class CNN(nn.Module):
         d = patch_size ** num_layers
         self.d = d
         self.layerwise = layerwise
-        self.h = h
+        if isinstance(h, list):
+            self.h = h
+        else:
+            self.h = [h for _ in range(num_layers)]
         self.out_dim_beta = out_dim
 
         self.hier = nn.Sequential(
             NonOverlappingConv1dReLU(
-                input_channels, h, d // patch_size, patch_size, bias
+                input_channels, self.h[0], d // patch_size, patch_size, bias
             ),
             *[
                 NonOverlappingConv1dReLU(
-                    h, h, d // patch_size ** (l + 1), patch_size, bias
+                    self.h[l-1], self.h[l], d // patch_size ** (l + 1), patch_size, bias
                 )
                 for l in range(1, num_layers)
             ],
@@ -81,10 +84,10 @@ class CNN(nn.Module):
                 raise NotImplementedError
             if self.layerwise:
                 self.losses = nn.ModuleList([CLAPPUnsupervisedHalfMasking(
-                    h, d // patch_size**(l+1), k_predictions=k_predictions)
+                    self.h[l], d // patch_size**(l+1), k_predictions=k_predictions)
                                              for l in range(0, num_layers)])
             else:
-                self.losses = CLAPPUnsupervisedHalfMasking(h, d // (patch_size**num_layers), k_predictions=k_predictions)
+                self.losses = CLAPPUnsupervisedHalfMasking(self.h[-1], d // (patch_size**num_layers), k_predictions=k_predictions)
         else:
             if self.layerwise:
                 raise NotImplementedError("Layerwise for loss other than CLAPP not implemented.")
@@ -93,7 +96,7 @@ class CNN(nn.Module):
         self.evaluating = False
 
     def initialize_beta(self):
-        self.beta = nn.Parameter(torch.randn(self.h, self.out_dim_beta))
+        self.beta = nn.Parameter(torch.randn(self.h[-1], self.out_dim_beta))
 
     def forward(self, x):
         outs = []

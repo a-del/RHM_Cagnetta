@@ -342,7 +342,7 @@ def main():
     parser.add_argument("--random_features", type=int, default=0)   # for no training
 
     ## Nets params ##
-    parser.add_argument("--width", type=int, default=64)
+    parser.add_argument("--width", type=str, default="64")
     parser.add_argument("--net_layers", type=int, default=2)   # TODO why default is wrong with num_layers default??
     parser.add_argument("--filter_size", type=int, default=2)
     # parser.add_argument("--stride", type=int, default=2)   # not used
@@ -424,6 +424,7 @@ def main():
     # define train and test sets sizes
 
     args.ptr, args.pte = args2train_test_sizes(args)
+    args.width = eval(args.width)   # either int or list of int
 
     with open(args.output+".pk", "wb") as handle:
         pickle.dump(args, handle)

@@ -130,11 +130,11 @@ def opt_algo(args, net):
         # )
         # else:
         optimizer = optim.SGD(
-            net.parameters(), lr=args.lr * args.width, momentum=args.momentum
+            net.parameters(), lr=args.lr * 100, momentum=args.momentum   # 100 is a heuristic, used to be width   # TODO improve that!
         )  ## 5e-4
     elif args.optim == "adam":
         optimizer = optim.Adam(
-            net.parameters(), lr=args.lr * args.width
+            net.parameters(), lr=args.lr * 100   # 100 is a heuristic, used to be width   # TODO improve that!
         )  ## 1e-5
     else:
         raise NameError("Specify a valid optimizer [Adam, (S)GD]")
