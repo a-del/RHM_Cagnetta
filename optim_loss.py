@@ -35,10 +35,10 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
     Computes the CLAPP loss using no labels.
     To avoid the use of labels, the half-masked encodings are used to predict the complementary-masked encodings.
     """
-    def __init__(self, c_in, leng, k_predictions=1, either_pos_or_neg=False):
+    def __init__(self, c_in, leng, k_predictions=1, prop_hidden=0.5, either_pos_or_neg=False):
         super().__init__()
         input_size = c_in*leng
-        self.z_size = input_size // 2
+        self.z_size = int(input_size * (1-prop_hidden))
         self.c_size = input_size - self.z_size
         self.Wpred = nn.ModuleList(nn.Linear(self.c_size, self.z_size, bias=False) for _ in range(k_predictions))
         self.k_predictions = k_predictions
