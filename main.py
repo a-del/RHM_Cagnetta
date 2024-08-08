@@ -367,6 +367,7 @@ def main():
     parser.add_argument("--layerwise", type=int, default=-1)
     parser.add_argument("--k_predictions", type=int, default=1, help="for clapp only, how many predictions (masks)")
     parser.add_argument("--prop_fixed_pred", type=float, default=0.5, help="proportion of neurons hidden for pred")
+    parser.add_argument("--detach_c", type=int, default=0, help="detach context for 1-direction-only gradients")
 
     parser.add_argument(
         "--alpha", default=1.0, type=float, help="alpha-trick parameter"

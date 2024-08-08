@@ -35,13 +35,14 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
     Computes the CLAPP loss using no labels.
     To avoid the use of labels, the half-masked encodings are used to predict the complementary-masked encodings.
     """
-    def __init__(self, c_in, leng, k_predictions=1, prop_hidden=0.5, either_pos_or_neg=False):
+    def __init__(self, c_in, leng, k_predictions=1, prop_hidden=0.5, detach_c=False, either_pos_or_neg=False):
         super().__init__()
         input_size = c_in*leng
         self.z_size = int(input_size * (1-prop_hidden))
         self.c_size = input_size - self.z_size
         self.Wpred = nn.ModuleList(nn.Linear(self.c_size, self.z_size, bias=False) for _ in range(k_predictions))
         self.k_predictions = k_predictions
+        self.detach_c = detach_c
         self.masks = [torch.tensor(rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
                                              size=(input_size,), replace=False)) for _ in range(self.k_predictions)]
 
@@ -60,6 +61,8 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
             batch_anti_mask = torch.vmap(partial(torch.masked_select, mask=~mask))
             z = batch_mask(reprs)
             c = batch_anti_mask(reprs)
+            if self.detach_c:
+                c = c.detach()
             zhat = self.Wpred[0](c.reshape(b, self.c_size))
 
             # positive samples:
