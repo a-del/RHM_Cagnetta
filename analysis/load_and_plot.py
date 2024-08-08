@@ -6,12 +6,19 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 
-def get_all_data(path):
+def get_all_data(path, rec=False, encoder_df=None, eval_df=None):
     encoder_runs = []
     eval_runs = []
     for file in os.listdir(path):
         if not file.endswith(".pk"):
-            continue
+            if rec:
+                try:
+                    encoder_df, eval_df = get_all_data(os.path.join(path, file), rec=False, encoder_df=encoder_df, eval_df=eval_df)
+                    continue
+                except NotADirectoryError:
+                    continue
+            else:
+                continue
         try:
             with open(os.path.join(path, file), "rb") as f:
                 args = pk.load(f)
@@ -28,43 +35,61 @@ def get_all_data(path):
                               "best_ep": data["best"]["epoch"] if "best" in data and "epoch" in data["best"] else np.nan,
                               **vars(args)},
                              )
-    return pd.DataFrame(encoder_runs), pd.DataFrame(eval_runs)
+    enc = pd.DataFrame(encoder_runs)
+    ev = pd.DataFrame(eval_runs)
+    if encoder_df is not None:
+        enc = pd.concat([encoder_df, enc])
+    if eval_df is not None:
+        ev = pd.concat([eval_df, ev])
+
+    return enc, ev
 
 
-def load_data(path):
-    orig_folder = os.path.basename(path.split("logs/")[1])
+def load_data(path, rec=False):
+    orig_folder = os.path.basename(path)
     save_file = os.path.join("analysis", orig_folder)
-    encoder_runs = pd.read_csv(os.path.join(save_file, "encoder_runs.csv"))
-    eval_runs = pd.read_csv(os.path.join(save_file, "eval_runs.csv"))
-    encoder_runs["epochs_lst"] = encoder_runs["epochs_lst"].apply(eval)
-    encoder_runs["train_loss"] = encoder_runs["train_loss"].apply(eval)
-    eval_runs["epochs_lst"] = eval_runs["epochs_lst"].apply(eval)
-    eval_runs["train_loss"] = eval_runs["train_loss"].apply(eval)
-    eval_runs["test_err"] = eval_runs["test_err"].apply(eval)
+    encoder_runs = pd.read_csv(os.path.join(save_file, ("rec_" if rec else "") + "encoder_runs.csv"))
+    eval_runs = pd.read_csv(os.path.join(save_file, ("rec_" if rec else "") + "eval_runs.csv"))
+    def custom_eval(x):
+        if not isinstance(x, str):
+            return x
+        nan = np.nan
+        return eval(x)
+    encoder_runs["epochs_lst"] = encoder_runs["epochs_lst"].apply(custom_eval)
+    encoder_runs["train_loss"] = encoder_runs["train_loss"].apply(custom_eval)
+    encoder_runs["width"] = encoder_runs["width"].apply(custom_eval)
+    encoder_runs["name"] = encoder_runs["name"].apply(str)
+    eval_runs["epochs_lst"] = eval_runs["epochs_lst"].apply(custom_eval)
+    eval_runs["train_loss"] = eval_runs["train_loss"].apply(custom_eval)
+    eval_runs["test_err"] = eval_runs["test_err"].apply(custom_eval)
+    eval_runs["width"] = eval_runs["width"].apply(custom_eval)
     return encoder_runs, eval_runs
 
 
-def save_data(encoder_runs:pd.DataFrame, eval_runs, path):
-    orig_folder = os.path.basename(path.split("logs/")[1])
+def save_data(encoder_runs:pd.DataFrame, eval_runs, path, rec=False):
+    orig_folder = os.path.basename(path)
     save_file = os.path.join("analysis", orig_folder)
     os.makedirs(save_file, exist_ok=True)
-    encoder_runs.to_csv(os.path.join(save_file, "encoder_runs.csv"))
-    eval_runs.to_csv(os.path.join(save_file, "eval_runs.csv"))
+    encoder_runs.to_csv(os.path.join(save_file, ("rec_" if rec else "") + "encoder_runs.csv"))
+    eval_runs.to_csv(os.path.join(save_file, ("rec_" if rec else "") + "eval_runs.csv"))
 
 
-def load_and_plot_all(path="logs/", load=False, save=False):
+def load_and_plot_all(path="logs/", load=False, save=False, rec=False, col_fun=None):
     if load:
-        encoder_runs, eval_runs = load_data(path)
+        encoder_runs, eval_runs = load_data(path, rec=rec)
     else:
-        encoder_runs, eval_runs = get_all_data(path)
+        encoder_runs, eval_runs = get_all_data(path, rec=rec)
     if save:
-        save_data(encoder_runs, eval_runs, path)
+        save_data(encoder_runs, eval_runs, path, rec=rec)
     # mask = encoder_runs.epochs_lst.apply(lambda x: x[-1] < 700)
     # joint = pd.merge(encoder_runs, eval_runs, left_on="name", right_on="encoder_run", suffixes=("_enc", "_dec")).drop("name_enc", axis=1)
     # df = joint.epochs_lst_enc.apply(lambda x: x[-1] < 700)
     # encoder_runs = eval_runs
     of_interest = encoder_runs# [(encoder_runs.epochs_lst.apply(lambda x: 1000 < x[-1] < 2000)) & (encoder_runs.m == 4) & (encoder_runs.num_layers == 3)]
-    col_fun = setup_colors_dec(of_interest)
+    # of_interest = encoder_runs[(encoder_runs["name"].apply(lambda x: "clapp_loss_3_4" in x))]
+    # eval_runs = eval_runs[eval_runs.encoder_run.isin(of_interest["name"])]
+    if col_fun is None:
+        col_fun = setup_colors(of_interest)
     plot_all_train_losses(of_interest, title="encoder", col_fun=col_fun)
     # eval_of_interest = eval_runs[eval_runs.encoder_run == "fig_18"]
     plot_all_train_losses(eval_runs, title="decoder", col_fun=col_fun)
@@ -122,6 +147,7 @@ def setup_colors(df):
         try:
             c = col_dict[row["name"].split("_clf")[0]]
         except KeyError:
+            print("Not finding color for", row["name"])
             c = "k"
         return c, 1, "-"
     return col_fun
@@ -148,6 +174,85 @@ def setup_colors_dec(df):
     return col_fun
 
 
+def setup_colors_width():
+    def col_fun(row):
+        if row.m == 8:
+            ls = "--"
+        else:
+            ls = "-"
+        if row.width[:3] == [2*row.m**2,2*row.m**2,4*row.m**2]:
+            c = "C0"
+        elif row.width[:3] == [2*row.m**2, 4*row.m**2, 8*row.m**2]:
+            c = "C2"
+        elif row.width[:3] == [4*row.m**2 ,8*row.m**2 ,12*row.m**2 ]:
+            c = "C1"
+        elif row.width[:3] == [4*row.m**2 ,4*row.m**2 ,4*row.m**2]:
+            c = "gray"
+        else:
+            c = "k"
+        if row.lr == 0.002:
+            a = 0.15
+        elif row.lr == 0.005:
+            a = 0.35
+        elif row.lr == 0.01:
+            a = 0.6
+        elif row.lr == 0.02:
+            a = 0.8
+        else:
+            a = 1
+        return c, a, ls
+    return col_fun
+
+
+def setup_colors_width2():
+    def col_fun(row):
+        if row.m == 8:
+            a=0.8
+        else:
+            a=0.4
+        if row.width[:3] == [2*row.m**2,2*row.m**2,4*row.m**2]:
+            c = "C0"
+        elif row.width[:3] == [2*row.m**2, 4*row.m**2, 8*row.m**2]:
+            c = "C2"
+        elif row.width[:3] == [4*row.m**2 ,8*row.m**2 ,12*row.m**2 ]:
+            c = "C1"
+        elif row.width[:3] == [4*row.m**2 ,4*row.m**2 ,4*row.m**2]:
+            c = "gray"
+        else:
+            c = "k"
+        if row.lr == 0.002:
+            ls = ':'
+        elif row.lr == 0.005:
+            ls = '-.'
+        elif row.lr == 0.01:
+            ls = '--'
+        elif row.lr == 0.02:
+            ls = '-'
+        else:
+            ls = '-'
+        return c, a, ls
+    return col_fun
+
+
+def setup_colors_preds():
+    def col_fun(row):
+        print(row.m, row.width)
+        if row.m >= 8:
+            ls = "--"
+        else:
+            ls = "-"
+        if row.k_predictions == 1:
+            c = "C0"
+        elif row.k_predictions == 3:
+            c = "C2"
+        elif row.k_predictions == 8:
+            c = "C1"
+        else:
+            c = "k"
+        return c, 1, ls
+    return col_fun
+
+
 if __name__ == '__main__':
-    load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/test_better", save=True)
+    load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs", save=True, rec=False)#, col_fun=setup_colors_width2())
     # load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/figure", load=True)
