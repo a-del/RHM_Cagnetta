@@ -368,6 +368,7 @@ def main():
     parser.add_argument("--k_predictions", type=int, default=1, help="for clapp only, how many predictions (masks)")
     parser.add_argument("--prop_fixed_pred", type=float, default=0.5, help="proportion of neurons hidden for pred")
     parser.add_argument("--detach_c", type=int, default=0, help="detach context for 1-direction-only gradients")
+    parser.add_argument("--sequential", type=int, default=0, help="train layers one after the other")
 
     parser.add_argument(
         "--alpha", default=1.0, type=float, help="alpha-trick parameter"
@@ -428,14 +429,21 @@ def main():
     args.ptr, args.pte = args2train_test_sizes(args)
     args.width = eval(args.width)   # either int or list of int
 
+    if args.sequential:
+        layers_to_train = range(args.num_layers)
+    else:
+        layers_to_train = ["all"]
+
     with open(args.output+".pk", "wb") as handle:
         pickle.dump(args, handle)
     try:
         trainloader, testloader, net0, criterion = set_up(args)
-        for data in run(args, trainloader, testloader, net0, criterion):
-            with open(args.output+".pk", "wb") as handle:
-                pickle.dump(args, handle)   # a bit useless as args is also in data
-                pickle.dump(data[0], handle)
+        for layer in layers_to_train:
+            net0.train_only_layer(layer)
+            for data in run(args, trainloader, testloader, net0, criterion):
+                with open(args.output+("" if layer == 'all' else f"_l{layer}")+".pk", "wb") as handle:
+                    pickle.dump(args, handle)   # a bit useless as args is also in data
+                    pickle.dump(data[0], handle)
         if args.loss == "clapp_unsup":
             print("\n\nDone training encoder; now training classifier!!\n\n")
             args.output = os.path.join(os.path.dirname(args.output), os.path.basename(args.output)+"_clf")

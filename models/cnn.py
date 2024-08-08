@@ -77,6 +77,7 @@ class CNN(nn.Module):
             self.initialize_beta()
         else:
             self.beta = None
+        self.training_layers = list(range(len(self.hier)))
 
         # define loss if need be
         if loss == "clapp_unsup":
@@ -126,6 +127,8 @@ class CNN(nn.Module):
         if self.layerwise:
             loss = 0
             for i, out in enumerate(outs[1]):
+                if i not in self.training_layers:
+                    continue
                 if criterion is not None:
                     loss += criterion(out, y)
                 else:
@@ -148,6 +151,14 @@ class CNN(nn.Module):
         self.evaluating = True
         self.layerwise = False
         self.losses = None
+
+    def train_only_layer(self, layer):
+        if layer == "all":
+            self.training_layers = set(range(len(self.hier)))
+        else:
+            if not isinstance(layer, int):
+                raise ValueError("Only 'all' or int (index of layer to train) are valid")
+            self.training_layers = {layer}
 
 
 class CNNLayerWise(nn.Module):    # only for patch_size = 2!!
