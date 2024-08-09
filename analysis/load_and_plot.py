@@ -27,7 +27,13 @@ def get_all_data(path, rec=False, encoder_df=None, eval_df=None):
             print("Passing file", file)
             continue
         if "clf" not in file and args.loss=="clapp_unsup":
-            encoder_runs.append({"name": file[:-3], "epochs_lst": data["epoch"], "train_loss": data["train loss"], **vars(args)})
+            this_dct = {"name": file[:-3], "encoder_run": file[:-3], "epochs_lst": data["epoch"],
+                        "train_loss": data["train loss"], "layer": -1, **vars(args)}
+            for i in range(10):   # 10 will never even be reached
+                if this_dct["encoder_run"].endswith(f"_l{i}"):
+                    this_dct["encoder_run"] = this_dct["encoder_run"].split(f"_l{i}")[0]
+                    this_dct["layer"] = i
+            encoder_runs.append(this_dct)
         else:
             eval_runs.append({"name": file[:-3], "encoder_run": os.path.basename(args.output).split("_clf")[0],
                               "epochs_lst": data["epoch"], "train_loss": data["train loss"], "test_err": data["terr"],
@@ -48,8 +54,8 @@ def get_all_data(path, rec=False, encoder_df=None, eval_df=None):
 def load_data(path, rec=False):
     orig_folder = os.path.basename(path)
     save_file = os.path.join("analysis", orig_folder)
-    encoder_runs = pd.read_csv(os.path.join(save_file, ("rec_" if rec else "") + "encoder_runs.csv"))
-    eval_runs = pd.read_csv(os.path.join(save_file, ("rec_" if rec else "") + "eval_runs.csv"))
+    encoder_runs = pd.read_csv(os.path.join(save_file, ("rec_" if rec else "") + "encoder_runs.csv"), index_col=0)
+    eval_runs = pd.read_csv(os.path.join(save_file, ("rec_" if rec else "") + "eval_runs.csv"), index_col=0)
     def custom_eval(x):
         if not isinstance(x, str):
             return x
@@ -59,10 +65,12 @@ def load_data(path, rec=False):
     encoder_runs["train_loss"] = encoder_runs["train_loss"].apply(custom_eval)
     encoder_runs["width"] = encoder_runs["width"].apply(custom_eval)
     encoder_runs["name"] = encoder_runs["name"].apply(str)
+    encoder_runs["encoder_run"] = encoder_runs["encoder_run"].apply(str)
     eval_runs["epochs_lst"] = eval_runs["epochs_lst"].apply(custom_eval)
     eval_runs["train_loss"] = eval_runs["train_loss"].apply(custom_eval)
     eval_runs["test_err"] = eval_runs["test_err"].apply(custom_eval)
     eval_runs["width"] = eval_runs["width"].apply(custom_eval)
+    eval_runs["encoder_run"] = eval_runs["encoder_run"].apply(str)
     return encoder_runs, eval_runs
 
 
@@ -110,7 +118,7 @@ def smoothen(vals, width=20):
     return sm
 
 
-def plot_all_train_losses(df:pd.DataFrame, title=None, col_fun=None, smooth=20):
+def plot_all_train_losses(df:pd.DataFrame, title=None, col_fun=None, smooth=20, legend=True):
     # smooth=1 for no smoothing; smooth is width of averaging window
     fig, ax = plt.subplots(figsize=(15,10))
     i = 0
@@ -120,24 +128,44 @@ def plot_all_train_losses(df:pd.DataFrame, title=None, col_fun=None, smooth=20):
         i += 1
     ax.set_xlabel("Epochs")
     ax.set_ylabel("Train loss")
-    ax.legend()
+    if legend:
+        ax.legend()
     ax.set_yscale('log')
     ax.set_title(title)
     return fig, ax
 
 
-def plot_all_test_errors(df:pd.DataFrame, title=None, col_fun=None):
+def plot_all_test_errors(df:pd.DataFrame, title=None, col_fun=None, legend=True):
     fig, ax = plt.subplots(figsize=(15,10))
     for _, row in df.iterrows():
         col, a, ls = col_fun(row) if col_fun is not None else (None, None, None)
         test_epochs = [ep for ep in row.epochs_lst if not ep%10]
         ax.plot(test_epochs, row.test_err, label=row["name"], color=col, alpha=a, linestyle=ls)
         ax.scatter([row.best_ep], [100 - row.best_acc], marker="*", color=col, alpha=a)
-    ax.legend()
+    if legend:
+        ax.legend()
     ax.set_xlabel("Epochs")
     ax.set_ylabel("Test error (%)")
     ax.set_title(title)
     return fig, ax
+
+
+def compare_rows(df):
+    columns_to_drop = ["epochs_lst", "train_loss", "test_err", "best_ep", "output", "output_sfx"]
+    columns_to_keep = []
+    for col in df.columns:
+        if col in columns_to_drop:
+            continue
+        try:
+            n = df[col].nunique()
+        except TypeError:
+            print(f"Column {col} is non hashable.")   # Todo could check by hand
+            columns_to_keep.append(col)
+        else:
+            if n > 1:
+                columns_to_keep.append(col)
+    smaller_df = df[columns_to_keep]
+    return smaller_df
 
 
 def setup_colors(df):
@@ -254,5 +282,5 @@ def setup_colors_preds():
 
 
 if __name__ == '__main__':
-    load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs", save=True, rec=False)#, col_fun=setup_colors_width2())
+    load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/seq", save=False, rec=False)#, col_fun=setup_colors_width2())
     # load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/figure", load=True)
