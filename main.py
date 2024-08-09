@@ -434,8 +434,8 @@ def main():
     else:
         layers_to_train = ["all"]
 
-    with open(args.output+".pk", "wb") as handle:
-        pickle.dump(args, handle)
+    # with open(args.output+".pk", "wb") as handle:
+    #     pickle.dump(args, handle)
     try:
         trainloader, testloader, net0, criterion = set_up(args)
         for layer in layers_to_train:
