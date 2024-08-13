@@ -50,7 +50,7 @@ class NonOverlappingConv1dReLU(NonOverlappingConv1d):
 
 class CNN(nn.Module):
     def __init__(self, input_channels, h, out_dim, num_layers, patch_size=2, bias=False, layerwise=False,
-                 last_lin_layer=True, loss=None, k_predictions=1, prop_hidden=0.5, detach_c=False):
+                 last_lin_layer=True, loss=None, k_predictions=1, prop_hidden=0.5, detach_c=False, random_masking=False):
         super(CNN, self).__init__()
 
         d = patch_size ** num_layers
@@ -85,11 +85,13 @@ class CNN(nn.Module):
                 raise NotImplementedError
             if self.layerwise:
                 self.losses = nn.ModuleList([CLAPPUnsupervisedHalfMasking(
-                    self.h[l], d // patch_size**(l+1), k_predictions=k_predictions, prop_hidden=prop_hidden, detach_c=detach_c)
+                    self.h[l], d // patch_size**(l+1), k_predictions=k_predictions, prop_hidden=prop_hidden,
+                    detach_c=detach_c, random_masking=random_masking)
                                              for l in range(0, num_layers)])
             else:
                 self.losses = CLAPPUnsupervisedHalfMasking(self.h[-1], d // (patch_size**num_layers),
-                                                           k_predictions=k_predictions, prop_hidden=prop_hidden, detach_c=detach_c)
+                                                           k_predictions=k_predictions, prop_hidden=prop_hidden,
+                                                           detach_c=detach_c, random_masking=random_masking)
         else:
             if self.layerwise:
                 raise NotImplementedError("Layerwise for loss other than CLAPP not implemented.")

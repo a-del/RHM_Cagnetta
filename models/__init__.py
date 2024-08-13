@@ -60,7 +60,8 @@ def model_initialization(args, input_dim, ch):
             loss=args.loss,
             k_predictions=args.k_predictions,
             prop_hidden=args.prop_fixed_pred,
-            detach_c=args.detach_c
+            detach_c=args.detach_c,
+            random_masking=args.random_pred
         )
     elif args.net == "gcnn":
         net = GCNN(

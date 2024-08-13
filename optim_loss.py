@@ -35,16 +35,21 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
     Computes the CLAPP loss using no labels.
     To avoid the use of labels, the half-masked encodings are used to predict the complementary-masked encodings.
     """
-    def __init__(self, c_in, leng, k_predictions=1, prop_hidden=0.5, detach_c=False, either_pos_or_neg=False):
+    def __init__(self, c_in, leng, k_predictions=1, prop_hidden=0.5, detach_c=False, random_masking=False, either_pos_or_neg=False):
         super().__init__()
         input_size = c_in*leng
+        self.input_size = input_size
         self.z_size = int(input_size * (1-prop_hidden))
         self.c_size = input_size - self.z_size
-        self.Wpred = nn.ModuleList(nn.Linear(self.c_size, self.z_size, bias=False) for _ in range(k_predictions))
         self.k_predictions = k_predictions
         self.detach_c = detach_c
-        self.masks = [torch.tensor(rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
-                                             size=(input_size,), replace=False)) for _ in range(self.k_predictions)]
+        self.random_masking = random_masking
+        if self.random_masking:
+            self.Wpred = nn.ModuleList(nn.Linear(self.input_size, self.input_size, bias=False) for _ in range(k_predictions))
+        else:
+            self.Wpred = nn.ModuleList(nn.Linear(self.c_size, self.z_size, bias=False) for _ in range(k_predictions))
+            self.masks = [torch.tensor(rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
+                                                 size=(self.input_size,), replace=False)) for _ in range(self.k_predictions)]
 
     def forward(self, reprs: torch.Tensor, y):
         # reprs: b, chans, len
@@ -54,16 +59,24 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
         b = reprs.size(0)
         reprs = reprs.reshape(b, -1)
         for k in range(self.k_predictions):
-            mask = self.masks[k]
-            if device >= 0:
-                mask = mask.to(device)
-            batch_mask = torch.vmap(partial(torch.masked_select, mask=mask))
-            batch_anti_mask = torch.vmap(partial(torch.masked_select, mask=~mask))
-            z = batch_mask(reprs)
-            c = batch_anti_mask(reprs)
+            if self.random_masking:
+                mask = torch.tensor(rd.choice([True for _ in range(self.z_size*b)] + [False for _ in range(self.c_size*b)],
+                                              size=(b, self.input_size,), replace=False),
+                                    device=device if device >= 0 else "cpu")
+                c = reprs
+                z = mask * reprs
+
+            else:
+                mask = self.masks[k]
+                if device >= 0:
+                    mask = mask.to(device)
+                batch_mask = torch.vmap(partial(torch.masked_select, mask=mask))
+                batch_anti_mask = torch.vmap(partial(torch.masked_select, mask=~mask))
+                z = batch_mask(reprs)
+                c = batch_anti_mask(reprs)
             if self.detach_c:
                 c = c.detach()
-            zhat = self.Wpred[0](c.reshape(b, self.c_size))
+            zhat = self.Wpred[0](c.reshape(b, -1))
 
             # positive samples:
             u_pos = torch.einsum("bij,bjk->b", z.reshape(b, 1, self.z_size), zhat.unsqueeze(2))   # b,
