@@ -10,7 +10,7 @@ from main import set_up
 from utils import args2train_test_sizes, reload_model
 
 
-def get_encodings_data(context_model, data_loader):
+def get_encodings_data(context_model, data_loader, layer_idx):
     reps = []
     targets = []
 
@@ -18,8 +18,10 @@ def get_encodings_data(context_model, data_loader):
 
         with torch.no_grad():
             y, outs = context_model(img)
+        rep = outs[layer_idx]
+        rep = rep.reshape(rep.size(0), -1)
 
-        reps.append(y.numpy())
+        reps.append(rep.numpy())
         targets.append(target.numpy())
 
     return reps, targets
@@ -66,9 +68,9 @@ def linear_regression_from_encodings(encs, tgts, test_encs, test_targets_idx):
     return test_acc
 
 
-def test_by_lin_reg(model, train_loader, test_loader):
-    encodings, targets = get_encodings_data(model, train_loader)
-    test_encodings, test_targets = get_encodings_data(model, test_loader)
+def test_by_lin_reg(model, train_loader, test_loader, layer_idx):
+    encodings, targets = get_encodings_data(model, train_loader, layer_idx)
+    test_encodings, test_targets = get_encodings_data(model, test_loader, layer_idx)
     encs = prepare_regression_input(encodings)
     test_encs = prepare_regression_input(test_encodings)
 
@@ -83,6 +85,8 @@ def main_linreg():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--batch_size", type=int, default=256)
+    parser.add_argument("--dec_layer", type=int, default=-1, help="index of layer from which to decode;"
+                                                                  "can be >=0 or <0. Default is last layer")
 
     parser.add_argument("--output", type=str, required=False, default="None")
     parser.add_argument("--output_sfx", type=str, required=False, default=None)
@@ -91,9 +95,12 @@ def main_linreg():
 
     args, data = reload_model(args)
     args.ptr, args.pte = args2train_test_sizes(args)
-    args.output = os.path.join(os.path.dirname(args.output), os.path.basename(args.output)+"_linreg"+(
-        f"_{args.output_sfx}" if args.output_sfx else ''))
+    args.output = os.path.join(os.path.dirname(args.output),
+                               os.path.basename(args.output) + "_linreg" + (
+                                   f"_l{args.dec_layer}" if args.dec_layer != -1 else "") + (
+                                   f"_{args.output_sfx}" if args.output_sfx else ''))
     args.device = "cpu"
+    args.layerwise = 1
     trainloader, testloader, net0, criterion = set_up(args, crit=False)
     if "best" in data:
         state_dict = data["best"]["net"]
@@ -102,9 +109,11 @@ def main_linreg():
         state_dict = data["last"]
         args.epoch_loaded = data["epochs_lst"][-1]
     net0.load_state_dict(state_dict)
-    net0.eval_mode()
     net0.beta = None
-    test_acc = test_by_lin_reg(net0, trainloader, testloader)
+    net0.losses = None
+
+    test_acc = test_by_lin_reg(net0, trainloader, testloader, args.dec_layer)
+
     args.linreg_test_acc = test_acc
     with open(args.output + ".txt", "w") as handle:
         handle.write(f"test_acc: {test_acc:.3g}")
