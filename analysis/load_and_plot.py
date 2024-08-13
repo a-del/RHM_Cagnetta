@@ -51,6 +51,29 @@ def get_all_data(path, rec=False, encoder_df=None, eval_df=None):
     return enc, ev
 
 
+def augment_df(encoder_runs, eval_runs):
+    encoder_runs["final_loss"] = encoder_runs.train_loss.apply(lambda x: np.mean(x[-10:]))
+    encoder_runs["smooth_loss"] = encoder_runs.train_loss.apply(lambda x: smoothen(x, 10))
+
+    # %%
+    def when_get_under_4(row):
+        below = row.smooth_loss < 3
+        return row.epochs_lst[below.argmax()] if below.any() else 5555
+
+    encoder_runs["first_under_4"] = encoder_runs.apply(when_get_under_4, axis=1)
+    # %%
+    encoder_runs["correlations"] = encoder_runs.m < encoder_runs.num_features
+    eval_runs["correlations"] = eval_runs.m < eval_runs.num_features
+    # %%
+    encoder_runs["Pmax"] = encoder_runs.m ** (
+                (encoder_runs.s ** encoder_runs.num_layers - 1) // (encoder_runs.s - 1)) * encoder_runs.num_classes
+    encoder_runs["Pstar"] = encoder_runs.num_classes * encoder_runs.m ** encoder_runs.num_layers
+    eval_runs["Pmax"] = eval_runs.m ** (
+                (eval_runs.s ** eval_runs.num_layers - 1) // (eval_runs.s - 1)) * eval_runs.num_classes
+    eval_runs["Pstar"] = eval_runs.num_classes * eval_runs.m ** eval_runs.num_layers
+    eval_runs["random_err"] = 100 - 100 / eval_runs.num_classes
+
+
 def load_data(path, rec=False):
     orig_folder = os.path.basename(path)
     save_file = os.path.join("analysis", orig_folder)
@@ -87,6 +110,7 @@ def load_and_plot_all(path="logs/", load=False, save=False, rec=False, col_fun=N
         encoder_runs, eval_runs = load_data(path, rec=rec)
     else:
         encoder_runs, eval_runs = get_all_data(path, rec=rec)
+        augment_df(encoder_runs, eval_runs)
     if save:
         save_data(encoder_runs, eval_runs, path, rec=rec)
     # mask = encoder_runs.epochs_lst.apply(lambda x: x[-1] < 700)
@@ -135,13 +159,18 @@ def plot_all_train_losses(df:pd.DataFrame, title=None, col_fun=None, smooth=20, 
     return fig, ax
 
 
-def plot_all_test_errors(df:pd.DataFrame, title=None, col_fun=None, legend=True):
+def plot_all_test_errors(df:pd.DataFrame, title=None, col_fun=None, legend=True, shift=0, rd_level=True):
     fig, ax = plt.subplots(figsize=(15,10))
+    if rd_level and "random_err" in df:
+        for rd in df.random_err.unique():
+            ax.axhline(rd, color="gray", alpha=0.7)
+    j = 0
     for _, row in df.iterrows():
         col, a, ls = col_fun(row) if col_fun is not None else (None, None, None)
         test_epochs = [ep for ep in row.epochs_lst if not ep%10]
-        ax.plot(test_epochs, row.test_err, label=row["name"], color=col, alpha=a, linestyle=ls)
+        ax.plot(test_epochs, [x+shift*j for x in row.test_err], label=row["name"], color=col, alpha=a, linestyle=ls)
         ax.scatter([row.best_ep], [100 - row.best_acc], marker="*", color=col, alpha=a)
+        j += 1
     if legend:
         ax.legend()
     ax.set_xlabel("Epochs")
@@ -282,5 +311,5 @@ def setup_colors_preds():
 
 
 if __name__ == '__main__':
-    load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/seq", save=False, rec=False)#, col_fun=setup_colors_width2())
+    load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/rd", save=True, rec=False)#, col_fun=setup_colors_width2())
     # load_and_plot_all("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/figure", load=True)
