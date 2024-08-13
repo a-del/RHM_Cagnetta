@@ -79,13 +79,13 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
             zhat = self.Wpred[0](c.reshape(b, -1))
 
             # positive samples:
-            u_pos = torch.einsum("bij,bjk->b", z.reshape(b, 1, self.z_size), zhat.unsqueeze(2))   # b,
+            u_pos = torch.einsum("bij,bjk->b", z.reshape(b, 1, -1), zhat.unsqueeze(2))   # b,
             loss_pos = ((1 - u_pos).relu()).mean()
 
             # negative samples: shuffle zhat along batch dimension such that predictions are across 2 different words
             idx = torch.randperm(b)
             zhat_shuf = zhat[idx]
-            u_neg = torch.einsum("bij,bjk->b", z.reshape(b, 1, self.z_size), zhat_shuf.unsqueeze(2))   # b,
+            u_neg = torch.einsum("bij,bjk->b", z.reshape(b, 1, -1), zhat_shuf.unsqueeze(2))   # b,
             loss_neg = ((1 + u_neg).relu()).mean()
 
             tot_loss = tot_loss + (loss_pos + loss_neg) / 2
