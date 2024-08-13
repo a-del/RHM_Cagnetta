@@ -2,6 +2,8 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 from copy import deepcopy
+import pickle
+import argparse
 
 def plot_std(x, std, c='C0', alpha=.3):
     log10e = math.log10(math.exp(1))
@@ -80,3 +82,14 @@ def pca(x, d, whitening):
         u.mul_(val[:d].mean().rsqrt())
 
     return u
+
+
+def reload_model(args):
+    with open(args.output + ".pk", "rb") as handle:
+        args_saved = pickle.load(handle)
+        data = pickle.load(handle)
+    args_saved = vars(args_saved)
+    args_saved.update(vars(args))
+    args = argparse.Namespace(**args_saved)   # or could define a special function to update() directly namespaces
+    return args, data
+

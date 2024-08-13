@@ -15,7 +15,9 @@ from functools import partial
 
 from init import init_fun
 from optim_loss import loss_func, regularize, opt_algo, measure_accuracy
-from utils import cpu_state_dict, args2train_test_sizes
+from utils import cpu_state_dict, args2train_test_sizes, reload_model
+
+
 # from observables import locality_measure, state2permutation_stability, state2clustering_error   # will be needed if stability, locality or clustering_error
 
 
@@ -101,13 +103,7 @@ def main():
     if args.layerwise == -1:
         args.layerwise = 1 if args.loss == "clapp_unsup" else 0
 
-
-    with open(args.output + ".pk", "rb") as handle:
-        args_saved = pickle.load(handle)
-        data = pickle.load(handle)
-    args_saved = vars(args_saved)
-    args_saved.update(vars(args))
-    args = argparse.Namespace(**args_saved)   # or could define a special function to update() directly namespaces
+    args, data = reload_model(args)
     args.ptr, args.pte = args2train_test_sizes(args)
     args.loss = "cross_entropy"
     args.last_lin_layer = 0   # need this now because beta cannot be loaded from state_dict; eval_mode() creates beta

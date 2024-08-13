@@ -7,7 +7,7 @@ import torch
 from sklearn import linear_model
 
 from main import set_up
-from utils import args2train_test_sizes
+from utils import args2train_test_sizes, reload_model
 
 
 def get_encodings_data(context_model, data_loader):
@@ -79,7 +79,7 @@ def test_by_lin_reg(model, train_loader, test_loader):
     return test_acc
 
 
-if __name__ == '__main__':
+def main_linreg():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--batch_size", type=int, default=256)
@@ -89,17 +89,12 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    with open(args.output + ".pk", "rb") as handle:
-        args_saved = pickle.load(handle)
-        data = pickle.load(handle)
-    args_saved = vars(args_saved)
-    args_saved.update(vars(args))
-    args = argparse.Namespace(**args_saved)   # or could define a special function to update() directly namespaces
+    args, data = reload_model(args)
     args.ptr, args.pte = args2train_test_sizes(args)
     args.output = os.path.join(os.path.dirname(args.output), os.path.basename(args.output)+"_linreg"+(
         f"_{args.output_sfx}" if args.output_sfx else ''))
     args.device = "cpu"
-    trainloader, testloader, net0, criterion = set_up(args)
+    trainloader, testloader, net0, criterion = set_up(args, crit=False)
     if "best" in data:
         state_dict = data["best"]["net"]
         args.epoch_loaded = data["best"]["epoch"]
@@ -113,4 +108,8 @@ if __name__ == '__main__':
     args.linreg_test_acc = test_acc
     with open(args.output + ".txt", "w") as handle:
         handle.write(f"test_acc: {test_acc:.3g}")
+
+
+if __name__ == '__main__':
+    main_linreg()
 
