@@ -38,8 +38,10 @@ def run(args, trainloader, testloader, net0, criterion):
     else:
         dynamics = None
 
-    loss = []
-    terr = []
+    loss_tr = []
+    loss_te = []
+    err_tr = []
+    err_te = []
     locality = []
     stability = []
     clustering_error = []
@@ -48,10 +50,11 @@ def run(args, trainloader, testloader, net0, criterion):
     best = dict()
     trloss_flag = 0
 
-    for net, epoch, losstr, avg_epoch_time in train(args, trainloader, net0, criterion):
+    for net, epoch, losstr, acc_tr, avg_epoch_time in train(args, trainloader, net0, criterion):
 
         assert str(losstr) != "nan", "Loss is nan value!!"
-        loss.append(losstr)
+        loss_tr.append(losstr)
+        err_tr.append(100 - acc_tr)
         epochs_list.append(epoch)
 
         # measuring locality for fcn nets
@@ -72,8 +75,9 @@ def run(args, trainloader, testloader, net0, criterion):
 
         if epoch % 10 != 0 and not args.save_dynamics: continue
 
-        acc = test(args, testloader, net, criterion, print_flag=epoch % 5 == 0)
-        terr.append(100 - acc)
+        acc, lo = test(args, testloader, net, criterion, print_flag=epoch % 5 == 0)
+        err_te.append(100 - acc)
+        loss_te.append(lo)
 
         if args.save_dynamics:
         #     and (
@@ -107,8 +111,10 @@ def run(args, trainloader, testloader, net0, criterion):
         out = {
             "args": args,
             "epoch": epochs_list,
-            "train loss": loss,
-            "terr": terr,
+            "train loss": loss_tr,
+            "train err": err_tr,
+            "test loss": loss_te,
+            "test err": err_te,
             "locality": locality,
             "stability": stability,
             "clustering_error": clustering_error,
@@ -147,8 +153,10 @@ def run(args, trainloader, testloader, net0, criterion):
     out = {
         "args": args,
         "epoch": epochs_list,
-        "train loss": loss,
-        "terr": terr,
+        "train loss": loss_tr,
+        "train err": err_tr,
+        "test loss": loss_te,
+        "test err": err_te,
         "locality": locality,
         "stability": stability,
         "clustering_error": clustering_error,
@@ -219,11 +227,13 @@ def train(args, trainloader, net0, criterion):
             loss.backward()
             optimizer.step()
 
-            correct, total = measure_accuracy(args, outputs[0], targets, correct, total)   # WARNING, even for layerwise only computes acc of last layer
+            b_correct, b_total = measure_accuracy(args, outputs[0], targets)   # WARNING, even for layerwise only computes acc of last layer
+            correct += b_correct
+            total += b_total
 
             # during first epoch, save some sgd steps instead of after whole epoch
             if epoch < 10 and batch_idx in checkpoint_batches and batch_idx != (num_batches - 1):
-                yield net, epoch + (batch_idx + 1) / num_batches, train_loss / (batch_idx + 1), None
+                yield net, epoch + (batch_idx + 1) / num_batches, loss / (batch_idx + 1), 100*b_correct / b_total, None
 
         avg_epoch_time = (time.time() - start_time) / (epoch + 1)
 
@@ -237,12 +247,10 @@ def train(args, trainloader, net0, criterion):
 
         scheduler.step()
 
-        yield net, epoch + 1, train_loss / (batch_idx + 1), avg_epoch_time
+        yield net, epoch + 1, train_loss / (batch_idx + 1), 100*correct / total, avg_epoch_time
 
 
 def test(args, testloader, net, criterion, print_flag=True):
-    if args.loss == "clapp_unsup":
-        return torch.nan
 
     net.eval()
     test_loss = 0
@@ -259,7 +267,9 @@ def test(args, testloader, net, criterion, print_flag=True):
 
             test_loss += loss.item()
 
-            correct, total = measure_accuracy(args, outputs[0], targets, correct, total)   # WARNING, even for layerwise only computes acc of last layer
+            b_correct, b_total = measure_accuracy(args, outputs[0], targets)   # WARNING, even for layerwise only computes acc of last layer
+            correct += b_correct
+            total += b_total
 
         if print_flag:
             print(
@@ -268,7 +278,7 @@ def test(args, testloader, net, criterion, print_flag=True):
                 flush=True
             )
 
-    return 100.0 * correct / total
+    return 100.0 * correct / total, test_loss / (batch_idx + 1)
 
 
 # timing function

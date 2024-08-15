@@ -105,17 +105,19 @@ def regularize(loss, f, l, reg_type):
         elif reg_type == 'l2':
             loss += l * p.pow(2).mean()
 
-def measure_accuracy(args, out, targets, correct, total):
+def measure_accuracy(args, out, targets):
     """
     Compute out accuracy on targets. Returns running number of correct and total predictions.
     """
+    total = targets.size(0)
+
+    if args.loss == "clapp_unsup":
+        return 0, total
     if args.loss != "hinge":
         _, predicted = out.max(1)
-        correct += predicted.eq(targets).sum().item()
+        correct = predicted.eq(targets).sum().item()
     else:
-        correct += (out * targets > 0).sum().item()
-
-    total += targets.size(0)
+        correct = (out * targets > 0).sum().item()
 
     return correct, total
 

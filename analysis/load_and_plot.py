@@ -36,7 +36,9 @@ def get_all_data(path, rec=False, encoder_df=None, eval_df=None):
             encoder_runs.append(this_dct)
         else:
             eval_runs.append({"name": file[:-3], "encoder_run": os.path.basename(args.output).split("_clf")[0],
-                              "epochs_lst": data["epoch"], "train_loss": data["train loss"], "test_err": data["terr"],
+                              "train_loss": data["train loss"], "train_err": data.get("train err"),
+                              "test_err": data.get("test err", data["terr"]), "test_loss": data.get("test loss"),
+                              "epochs_lst": data["epoch"],
                               "best_acc": data["best"]["acc"] if "best" in data and "acc" in data["best"] else np.nan,
                               "best_ep": data["best"]["epoch"] if "best" in data and "epoch" in data["best"] else np.nan,
                               **vars(args)},
@@ -142,16 +144,22 @@ def smoothen(vals, width=20):
     return sm
 
 
-def plot_all_train_losses(df:pd.DataFrame, title=None, col_fun=None, smooth=20, legend=True):
+def plot_all_train_losses(df:pd.DataFrame, title=None, col_fun=None, smooth=20, legend=True, shift=0, test=False):
     # smooth=1 for no smoothing; smooth is width of averaging window
     fig, ax = plt.subplots(figsize=(15,10))
     i = 0
     for _, row in df.iterrows():
         col, a, ls = col_fun(row) if col_fun is not None else (None, None, None)
-        ax.plot(row.epochs_lst, smoothen(row.train_loss, width=smooth), label=row["name"], color=col, linewidth=1, alpha=a, linestyle=ls)   # [x+0.002*i for x in row.train_loss]
+        if test:
+            eps = [ep for ep in row.epochs_lst if not ep%10]
+            data = row.test_loss
+        else:
+            eps = row.epochs_lst
+            data = row.train_loss
+        ax.plot(eps, smoothen(data, width=smooth)+shift*i, label=row["name"], color=col, linewidth=1, alpha=a, linestyle=ls)   # [x+0.002*i for x in row.train_loss]
         i += 1
     ax.set_xlabel("Epochs")
-    ax.set_ylabel("Train loss")
+    ax.set_ylabel(f"{'Test' if test else 'Train'} loss")
     if legend:
         ax.legend()
     ax.set_yscale('log')
@@ -159,7 +167,7 @@ def plot_all_train_losses(df:pd.DataFrame, title=None, col_fun=None, smooth=20, 
     return fig, ax
 
 
-def plot_all_test_errors(df:pd.DataFrame, title=None, col_fun=None, legend=True, shift=0, rd_level=True):
+def plot_all_test_errors(df:pd.DataFrame, title=None, col_fun=None, legend=True, shift=0, rd_level=True, train=False):
     fig, ax = plt.subplots(figsize=(15,10))
     if rd_level and "random_err" in df:
         for rd in df.random_err.unique():
@@ -167,14 +175,19 @@ def plot_all_test_errors(df:pd.DataFrame, title=None, col_fun=None, legend=True,
     j = 0
     for _, row in df.iterrows():
         col, a, ls = col_fun(row) if col_fun is not None else (None, None, None)
-        test_epochs = [ep for ep in row.epochs_lst if not ep%10]
-        ax.plot(test_epochs, [x+shift*j for x in row.test_err], label=row["name"], color=col, alpha=a, linestyle=ls)
+        if not train:
+            eps = [ep for ep in row.epochs_lst if not ep%10]
+            data = row.test_loss
+        else:
+            eps = row.epochs_lst
+            data = row.train_loss
+        ax.plot(eps, [x+shift*j for x in data], label=row["name"], color=col, alpha=a, linestyle=ls)
         ax.scatter([row.best_ep], [100 - row.best_acc], marker="*", color=col, alpha=a)
         j += 1
     if legend:
         ax.legend()
     ax.set_xlabel("Epochs")
-    ax.set_ylabel("Test error (%)")
+    ax.set_ylabel(f"{'Train' if train else 'Test'} error (%)")
     ax.set_title(title)
     return fig, ax
 
