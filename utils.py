@@ -57,6 +57,8 @@ def args2train_test_sizes(args, max_pte=20000):
         args.ptr = int(- args.ptr * args.m ** args.num_layers * args.num_classes)
 
     args.pte = min(Pmax - args.ptr, args.pte)
+    if args.pte <= 0:
+        raise ValueError(f"No samples left for test set!!\n   Pmax is {Pmax}    ptr is {args.ptr}")
 
     return args.ptr, args.pte
 

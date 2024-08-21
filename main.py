@@ -222,7 +222,8 @@ def train(args, trainloader, net0, criterion):
                 loss = net.compute_loss(outputs, targets, criterion)
             else:
                 loss = criterion(outputs, targets)
-            train_loss += loss.detach().item()
+            this_loss = loss.detach().item()
+            train_loss += this_loss
             regularize(loss, net, args.weight_decay, reg_type=args.reg_type)
             loss.backward()
             optimizer.step()
@@ -233,7 +234,7 @@ def train(args, trainloader, net0, criterion):
 
             # during first epoch, save some sgd steps instead of after whole epoch
             if epoch < 10 and batch_idx in checkpoint_batches and batch_idx != (num_batches - 1):
-                yield net, epoch + (batch_idx + 1) / num_batches, loss / (batch_idx + 1), 100*b_correct / b_total, None
+                yield net, epoch + (batch_idx + 1) / num_batches, this_loss / (batch_idx + 1), 100*b_correct / b_total, None
 
         avg_epoch_time = (time.time() - start_time) / (epoch + 1)
 
