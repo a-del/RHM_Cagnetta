@@ -28,7 +28,7 @@ def get_all_data(path, rec=False, encoder_df=None, eval_df=None):
             continue
         if "clf" not in file and args.loss=="clapp_unsup":
             this_dct = {"name": file[:-3], "encoder_run": file[:-3], "epochs_lst": data["epoch"],
-                        "train_loss": data["train loss"], "layer": -1, **vars(args)}
+                        "train_loss": data["train loss"], "test_loss": data.get("test loss"), "layer": -1, **vars(args)}
             for i in range(10):   # 10 will never even be reached
                 if this_dct["encoder_run"].endswith(f"_l{i}"):
                     this_dct["encoder_run"] = this_dct["encoder_run"].split(f"_l{i}")[0]
@@ -37,7 +37,8 @@ def get_all_data(path, rec=False, encoder_df=None, eval_df=None):
         else:
             eval_runs.append({"name": file[:-3], "encoder_run": os.path.basename(args.output).split("_clf")[0],
                               "train_loss": data["train loss"], "train_err": data.get("train err"),
-                              "test_err": data.get("test err", data["terr"]), "test_loss": data.get("test loss"),
+                              "test_loss": data.get("test loss"),
+                              "test_err": (data["test err"] if "test err" in data else data["terr"]),
                               "epochs_lst": data["epoch"],
                               "best_acc": data["best"]["acc"] if "best" in data and "acc" in data["best"] else np.nan,
                               "best_ep": data["best"]["epoch"] if "best" in data and "epoch" in data["best"] else np.nan,
@@ -61,19 +62,19 @@ def augment_df(encoder_runs, eval_runs):
     def when_get_under_4(row):
         below = row.smooth_loss < 3
         return row.epochs_lst[below.argmax()] if below.any() else 5555
+    
+    def add_ds_data(df):
+        df["correlations"] = df.m < df.num_features
+        df["Pmax"] = df.m ** ((df.s ** df.num_layers - 1) // (df.s - 1)) * df.num_classes
+        df["Pstar"] = df.num_classes * df.m ** df.num_layers
+    
+    if not encoder_runs.empty:
+        encoder_runs["first_under_4"] = encoder_runs.apply(when_get_under_4, axis=1)
+        add_ds_data(encoder_runs)
 
-    encoder_runs["first_under_4"] = encoder_runs.apply(when_get_under_4, axis=1)
-    # %%
-    encoder_runs["correlations"] = encoder_runs.m < encoder_runs.num_features
-    eval_runs["correlations"] = eval_runs.m < eval_runs.num_features
-    # %%
-    encoder_runs["Pmax"] = encoder_runs.m ** (
-                (encoder_runs.s ** encoder_runs.num_layers - 1) // (encoder_runs.s - 1)) * encoder_runs.num_classes
-    encoder_runs["Pstar"] = encoder_runs.num_classes * encoder_runs.m ** encoder_runs.num_layers
-    eval_runs["Pmax"] = eval_runs.m ** (
-                (eval_runs.s ** eval_runs.num_layers - 1) // (eval_runs.s - 1)) * eval_runs.num_classes
-    eval_runs["Pstar"] = eval_runs.num_classes * eval_runs.m ** eval_runs.num_layers
-    eval_runs["random_err"] = 100 - 100 / eval_runs.num_classes
+    if not eval_runs.empty:
+        add_ds_data(eval_runs)
+        eval_runs["random_err"] = 100 - 100 / eval_runs.num_classes
 
 
 def load_data(path, rec=False):
@@ -88,11 +89,14 @@ def load_data(path, rec=False):
         return eval(x)
     encoder_runs["epochs_lst"] = encoder_runs["epochs_lst"].apply(custom_eval)
     encoder_runs["train_loss"] = encoder_runs["train_loss"].apply(custom_eval)
+    encoder_runs["test_loss"] = encoder_runs["test_loss"].apply(custom_eval)
     encoder_runs["width"] = encoder_runs["width"].apply(custom_eval)
     encoder_runs["name"] = encoder_runs["name"].apply(str)
     encoder_runs["encoder_run"] = encoder_runs["encoder_run"].apply(str)
     eval_runs["epochs_lst"] = eval_runs["epochs_lst"].apply(custom_eval)
     eval_runs["train_loss"] = eval_runs["train_loss"].apply(custom_eval)
+    eval_runs["test_loss"] = eval_runs["test_loss"].apply(custom_eval)
+    eval_runs["train_err"] = eval_runs["train_err"].apply(custom_eval)
     eval_runs["test_err"] = eval_runs["test_err"].apply(custom_eval)
     eval_runs["width"] = eval_runs["width"].apply(custom_eval)
     eval_runs["encoder_run"] = eval_runs["encoder_run"].apply(str)
@@ -177,10 +181,10 @@ def plot_all_test_errors(df:pd.DataFrame, title=None, col_fun=None, legend=True,
         col, a, ls = col_fun(row) if col_fun is not None else (None, None, None)
         if not train:
             eps = [ep for ep in row.epochs_lst if not ep%10]
-            data = row.test_loss
+            data = row.test_err
         else:
             eps = row.epochs_lst
-            data = row.train_loss
+            data = row.train_err
         ax.plot(eps, [x+shift*j for x in data], label=row["name"], color=col, alpha=a, linestyle=ls)
         ax.scatter([row.best_ep], [100 - row.best_acc], marker="*", color=col, alpha=a)
         j += 1
