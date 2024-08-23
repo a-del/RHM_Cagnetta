@@ -4,6 +4,7 @@ import torch
 from torch import nn
 import torch.optim as optim
 
+import numpy as np
 import numpy.random as rd
 
 
@@ -35,21 +36,37 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
     Computes the CLAPP loss using no labels.
     To avoid the use of labels, the half-masked encodings are used to predict the complementary-masked encodings.
     """
-    def __init__(self, c_in, leng, k_predictions=1, prop_hidden=0.5, detach_c=False, random_masking=False, either_pos_or_neg=False):
+    def __init__(self, c_in, leng, k_predictions=1, prop_hidden=0.5, detach_c=False, random_masking=False,
+                 masking_axis=None, either_pos_or_neg=False):
         super().__init__()
-        input_size = c_in*leng
-        self.input_size = input_size
-        self.z_size = int(input_size * (1-prop_hidden))
-        self.c_size = input_size - self.z_size
         self.k_predictions = k_predictions
         self.detach_c = detach_c
         self.random_masking = random_masking
+        self.masking_axis = masking_axis
+        if self.masking_axis not in ["none", "space"]: raise ValueError
+
+        input_size = c_in*leng
+        self.c_in = c_in
+        self.leng = leng
+        self.input_size = input_size
+        if self.masking_axis == "space":
+            self.z_size = int(self.leng * (1 - prop_hidden))
+            self.c_size = self.leng - self.z_size
+        elif self.masking_axis == "none":
+            if self.random_masking:
+                self.z_size = self.input_size
+                self.c_size = self.input_size
+            else:
+                self.z_size = int(input_size * (1 - prop_hidden))
+                self.c_size = input_size - self.z_size
+        if not self.random_masking:
+            self._build_mask()
+
         if self.random_masking:
             self.Wpred = nn.ModuleList(nn.Linear(self.input_size, self.input_size, bias=False) for _ in range(k_predictions))
         else:
-            self.Wpred = nn.ModuleList(nn.Linear(self.c_size, self.z_size, bias=False) for _ in range(k_predictions))
-            self.masks = [torch.tensor(rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
-                                                 size=(self.input_size,), replace=False)) for _ in range(self.k_predictions)]
+            fac = self.c_in if self.masking_axis == "space" else 1
+            self.Wpred = nn.ModuleList(nn.Linear(self.c_size * fac, self.z_size * fac, bias=False) for _ in range(k_predictions))
 
     def forward(self, reprs: torch.Tensor, y):
         # reprs: b, chans, len
@@ -57,12 +74,11 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
 
         device = reprs.get_device()
         b = reprs.size(0)
-        reprs = reprs.reshape(b, -1)
+        # if self.masking_axis == "none":
+        #     reprs = reprs.reshape(b, -1)
         for k in range(self.k_predictions):
             if self.random_masking:
-                mask = torch.tensor(rd.choice([True for _ in range(self.z_size*b)] + [False for _ in range(self.c_size*b)],
-                                              size=(b, self.input_size,), replace=False),
-                                    device=device if device >= 0 else "cpu")
+                mask = self._build_mask(b, device)
                 c = reprs
                 z = mask * reprs
 
@@ -90,6 +106,36 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
 
             tot_loss = tot_loss + (loss_pos + loss_neg) / 2
         return tot_loss / self.k_predictions   # Todo is avg ok, or want just sum?
+
+    def _build_mask(self, batch_size=None, device=None):
+        if self.random_masking:
+            if self.masking_axis == "none":
+                mask = torch.tensor(np.stack(
+                    [rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
+                              size=(self.c_in, self.leng), replace=False)
+                     for _ in range(batch_size)],   # b, input_size
+                    axis=0
+                ), device=device if device >= 0 else "cpu"
+                )   # b, c_in, leng
+
+            elif self.masking_axis == "space":
+                mask = torch.tensor(np.stack(
+                    [rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
+                               size=(self.leng,), replace=False)
+                     for _ in range(batch_size)],   # b, leng
+                    axis=0
+                ), device=device if device >= 0 else "cpu"
+                ).unsqueeze(1)   # b, 1, leng
+
+            return mask
+        else:
+            self.masks = [
+                torch.tensor(rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
+                                       size=(self.z_size+self.c_size,), replace=False))
+                for _ in range(self.k_predictions)]
+            # each: input_size, or leng,
+            self.masks = [mask.reshape(-1, self.leng) for mask in self.masks]
+            # each: 1, leng or c_in, leng
 
 
 def regularize(loss, f, l, reg_type):
