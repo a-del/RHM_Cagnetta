@@ -50,23 +50,27 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
         self.leng = leng
         self.input_size = input_size
         if self.masking_axis == "space":
-            self.z_size = int(self.leng * (1 - prop_hidden))
-            self.c_size = self.leng - self.z_size
-        elif self.masking_axis == "none":
-            if self.random_masking:
-                self.z_size = self.input_size
-                self.c_size = self.input_size
+            self.n_shown = max(1, int(self.leng * (1 - prop_hidden)))
+            self.n_masked = self.leng - self.n_shown
+            if self.n_masked <= 0:
+                print("WARNING: Not enough length to mask along space; masking along channels.")
+                self.masking_axis = "none"
+        if self.masking_axis == "none":
+            self.n_shown = max(1, int(self.input_size * (1 - prop_hidden)))
+            self.n_masked = self.input_size - self.n_shown
+        if self.random_masking:
+            z_size = self.input_size
+            c_size = self.input_size
+        else:
+            if self.masking_axis == "space":
+                z_size = self.n_shown * self.c_in
             else:
-                self.z_size = int(input_size * (1 - prop_hidden))
-                self.c_size = input_size - self.z_size
+                z_size = self.n_shown
+            c_size = input_size - z_size
         if not self.random_masking:
             self._build_mask()
 
-        if self.random_masking:
-            self.Wpred = nn.ModuleList(nn.Linear(self.input_size, self.input_size, bias=False) for _ in range(k_predictions))
-        else:
-            fac = self.c_in if self.masking_axis == "space" else 1
-            self.Wpred = nn.ModuleList(nn.Linear(self.c_size * fac, self.z_size * fac, bias=False) for _ in range(k_predictions))
+        self.Wpred = nn.ModuleList(nn.Linear(c_size, z_size, bias=False) for _ in range(k_predictions))
 
     def forward(self, reprs: torch.Tensor, y):
         # reprs: b, chans, len
@@ -111,8 +115,8 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
         if self.random_masking:
             if self.masking_axis == "none":
                 mask = torch.tensor(np.stack(
-                    [rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
-                              size=(self.c_in, self.leng), replace=False)
+                    [rd.choice([True for _ in range(self.n_shown)] + [False for _ in range(self.n_masked)],
+                               size=(self.c_in, self.leng), replace=False)
                      for _ in range(batch_size)],   # b, input_size
                     axis=0
                 ), device=device if device >= 0 else "cpu"
@@ -120,7 +124,7 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
 
             elif self.masking_axis == "space":
                 mask = torch.tensor(np.stack(
-                    [rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
+                    [rd.choice([True for _ in range(self.n_shown)] + [False for _ in range(self.n_masked)],
                                size=(self.leng,), replace=False)
                      for _ in range(batch_size)],   # b, leng
                     axis=0
@@ -130,8 +134,8 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
             return mask
         else:
             self.masks = [
-                torch.tensor(rd.choice([True for _ in range(self.z_size)] + [False for _ in range(self.c_size)],
-                                       size=(self.z_size+self.c_size,), replace=False))
+                torch.tensor(rd.choice([True for _ in range(self.n_shown)] + [False for _ in range(self.n_masked)],
+                                       size=(self.n_shown+self.n_masked,), replace=False))
                 for _ in range(self.k_predictions)]
             # each: input_size, or leng,
             self.masks = [mask.reshape(-1, self.leng) for mask in self.masks]
