@@ -17,7 +17,7 @@ def get_encodings_data(context_model, data_loader, layer_idx):
     for step, (img, target) in enumerate(data_loader):
 
         with torch.no_grad():
-            y, outs = context_model(img)
+            y, outs, pres = context_model(img)
         rep = outs[layer_idx]
         rep = rep.reshape(rep.size(0), -1)
 

@@ -217,7 +217,7 @@ def train(args, trainloader, net0, criterion):
         for batch_idx, (inputs, targets) in enumerate(trainloader):
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
-            outputs = net(inputs)
+            outputs = net(inputs)[:2]   # [:2] excludes the pre-activations, last returned element
             if args.net == "cnn":
                 loss = net.compute_loss(outputs, targets, criterion)
             else:
@@ -260,7 +260,7 @@ def test(args, testloader, net, criterion, print_flag=True):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(args.device), targets.to(args.device)
-            outputs = net(inputs)
+            outputs = net(inputs)[:2]   # [:2] excludes the pre-activations, last returned element
             if args.net == "cnn":
                 loss = net.compute_loss(outputs, targets, criterion)
             else:

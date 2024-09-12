@@ -43,9 +43,10 @@ class NonOverlappingConv1dReLU(NonOverlappingConv1d):
         super(NonOverlappingConv1dReLU, self).__init__(input_channels, out_channels, out_dim, patch_size, bias)
         self.relu = nn.ReLU()
 
-    def forward(self, x):
-        x = super(NonOverlappingConv1dReLU, self).forward(x)
-        return self.relu(x)
+    def forward(self, xx, x):   # xx is unused; it serves only the fact that this module
+        # returns (pre-activations, output) and must be stackable
+        pre = super(NonOverlappingConv1dReLU, self).forward(x)
+        return pre, self.relu(pre)
 
 
 class CNN(nn.Module):
@@ -54,6 +55,7 @@ class CNN(nn.Module):
                  random_masking=False, masking_axis=None):
         super(CNN, self).__init__()
 
+        self.num_layers = num_layers
         d = patch_size ** num_layers
         self.d = d
         self.layerwise = layerwise
@@ -105,14 +107,17 @@ class CNN(nn.Module):
         self.beta = nn.Parameter(torch.randn(self.h[-1], self.out_dim_beta))
 
     def forward(self, x):
+        pres = []
         outs = []
         if self.layerwise:
             y = x[..., :self.d]
             for mod in self.hier:
-                y = mod(y.detach())
+                pre, y = mod(None, y.detach())
+                pres.append(pre)
                 outs.append(y)
         else:
-            y = self.hier(x[..., :self.d]) # modification to look at a part of the input only if the hierarchy is not deep enough
+            pre, y = self.hier(x[..., :self.d]) # modification to look at a part of the input only if the hierarchy is not deep enough
+            pres.append(pre)
             outs.append(y)
         y = y.mean(dim=[-1])   # last dimension (space) should already be of size 1, so equivalent to squeeze(-1)
         if self.beta is not None:
@@ -125,7 +130,7 @@ class CNN(nn.Module):
                 beta = self.beta
             y = y @ beta / beta.size(0)   # @ is .matmul   # does this .to(device) work? Do the gradients get properly computed?
             outs.append(y)
-        return y, outs
+        return y, outs, pres
 
     def compute_loss(self, outs, y, criterion=None):
         if self.layerwise:

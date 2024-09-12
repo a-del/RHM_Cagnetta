@@ -36,6 +36,7 @@ def state2clustering_error(state, args):
 
 
 def state2feature_extractor(state, args, input_dim, ch):
+    raise NotImplementedError("Deprecated after changes in other files")
     net = model_initialization(args, input_dim=input_dim, ch=ch)
     net.load_state_dict(state)
     net.to(args.device)
