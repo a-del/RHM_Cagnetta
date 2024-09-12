@@ -6,7 +6,7 @@ from itertools import *
 import random
 import numpy as np
 
-from .utils import dec2bin
+# from .utils import dec2bin
 
 
 def sample_hierarchical_rules(num_features, num_layers, m, num_classes, s, seed=0):
@@ -85,17 +85,17 @@ def sample_data_from_paths(samples_indices, paths, m, num_classes, num_layers, s
             # indexing the left AND right sub-features (i.e. dimensions of size 2 in x)
             # Repeat is there such that higher level features are chosen consistently for a give data-point
             left_right = (
-                torch.arange(s)[None]
-                    .repeat(s ** (num_layers - 2), 1)
-                    .reshape(s ** (num_layers - l - 1), -1)
-                    .t()
-                    .flatten()
+                torch.arange(s)[None]   # 1, s
+                    .repeat(s ** (num_layers - 2), 1)   # s ** (num_layers - 2), s
+                    .reshape(s ** (num_layers - l - 1), -1)   # same if l==1 ; s ** (num_layers-l-1), s ** l
+                    .t()   # s**l, s ** (num_layers-l-1)
+                    .flatten()   # s ** (num_layers-1)
             )
-            left_right = left_right[None].repeat(len(samples_indices), 1)
+            left_right = left_right[None].repeat(len(samples_indices), 1)   # len(samples_indices), s ** (num_layers-1)
 
             indices.append(left_right)
 
-        if l >= seed_reset_layer:
+        if l >= seed_reset_layer:   # could that be used to do at least one of the two change rules (replacement?)
             np.random.seed(seed + 42 + l)
             perm = torch.randperm(len(samples_indices))
             samples_indices = samples_indices[perm]
@@ -103,12 +103,12 @@ def sample_data_from_paths(samples_indices, paths, m, num_classes, num_layers, s
         groups_size //= m ** (s ** l)
         layer_indices = samples_indices.div(groups_size, rounding_mode='floor')
 
-        rules = number2base(layer_indices, m, string_length=s ** l)
+        rules = number2base(layer_indices, m, string_length=s ** l)   # len(samples_indices), s ** l
         rules = (
-            rules[:, None]
-                .repeat(1, s ** (num_layers - l - 1), 1)
-                .permute(0, 2, 1)
-                .flatten(1)
+            rules[:, None]   # len(samples_indices), 1, s ** l
+                .repeat(1, s ** (num_layers - l - 1), 1)   # len(samples_indices), s**(num_layers - l - 1), s ** l
+                .permute(0, 2, 1)   # len(samples_indices), s ** l, s**(num_layers - l - 1)
+                .flatten(1)  # len(samples_indices), s ** (num_layers - 1)
         )
 
         indices.append(rules)
@@ -152,46 +152,37 @@ class RandomHierarchyModel(Dataset):
         self.num_classes = num_classes
         self.s = s
 
-        paths, _ = sample_hierarchical_rules(
+        self.paths, tuples = sample_hierarchical_rules(
             num_features, num_layers, m, num_classes, s, seed=seed
         )
 
-        Pmax = m ** ((s ** num_layers - 1) // (s - 1)) * num_classes
+        self.Pmax = m ** ((s ** num_layers - 1) // (s - 1)) * num_classes
+        Pmax = self.Pmax
         assert Pmax < 1e19, "Pmax cannot be represented with int64!! Parameters too large! Please open a github issue if you need a solution."
         if max_dataset_size is None or max_dataset_size > Pmax:
             max_dataset_size = Pmax
         if testsize == -1:
             testsize = min(max_dataset_size // 5, 20000)
 
-        g = torch.Generator()
-        g.manual_seed(seed_traintest_split)
-
-        if Pmax < 5e6:  # there is a crossover in computational time of the two sampling methods around this value of Pmax
-            samples_indices = torch.randperm(Pmax, generator=g)[:max_dataset_size]
-        else:
-            samples_indices = torch.randint(Pmax, (2 * max_dataset_size,), generator=g)
-            samples_indices = torch.unique(samples_indices)
-            perm = torch.randperm(len(samples_indices), generator=g)[:max_dataset_size]
-            samples_indices = samples_indices[perm]
-
-        if train and testsize:
-            samples_indices = samples_indices[:-testsize]
-        else:
-            samples_indices = samples_indices[-testsize:]
+        self.samples_indices = self.generate_sample_ids(max_dataset_size, seed_traintest_split, testsize, train)
 
         self.x, self.targets = sample_data_from_paths(
-            samples_indices, paths, m, num_classes, num_layers, s, seed=seed, seed_reset_layer=seed_reset_layer
+            self.samples_indices, self.paths, m, num_classes, num_layers, s, seed=seed, seed_reset_layer=seed_reset_layer
         )
 
         # encode input pairs instead of features
+        self.format_data(input_format, num_features, whitening)
+
+        self.transform = transform
+
+    def format_data(self, input_format, num_features, whitening):
         if "pairs" in input_format:
             self.x = pairing_features(self.x, num_features)
-
         if 'onehot' not in input_format:
             assert not whitening, "Whitening only implemented for one-hot encoding"
-
         if "binary" in input_format:
-            self.x = dec2bin(self.x)
+            print("WAAARNIIINNNG")
+            # self.x = dec2bin(self.x)
             self.x = self.x.permute(0, 2, 1)
         elif "long" in input_format:
             self.x = self.x.long() + 1
@@ -202,7 +193,7 @@ class RandomHierarchyModel(Dataset):
                 self.x.long(),
                 num_classes=num_features if 'pairs' not in input_format else num_features ** 2
             ).float()
-            self.x = self.x.permute(0, 2, 1)   # batch, nb_channels, length
+            self.x = self.x.permute(0, 2, 1)  # batch, nb_channels, length
 
             if whitening:
                 inv_sqrt_n = (num_features - 1) ** -.5
@@ -211,7 +202,21 @@ class RandomHierarchyModel(Dataset):
         else:
             raise ValueError
 
-        self.transform = transform
+    def generate_sample_ids(self, max_dataset_size, seed_traintest_split, testsize, train):
+        g = torch.Generator()
+        g.manual_seed(seed_traintest_split)
+        if self.Pmax < 5e6:  # there is a crossover in computational time of the two sampling methods around this value of Pmax
+            samples_indices = torch.randperm(self.Pmax, generator=g)[:max_dataset_size]
+        else:
+            samples_indices = torch.randint(self.Pmax, (2 * max_dataset_size,), generator=g)
+            samples_indices = torch.unique(samples_indices)
+            perm = torch.randperm(len(samples_indices), generator=g)[:max_dataset_size]
+            samples_indices = samples_indices[perm]
+        if train and testsize:
+            samples_indices = samples_indices[:-testsize]
+        else:
+            samples_indices = samples_indices[-testsize:]
+        return samples_indices
 
     def __len__(self):
         return len(self.targets)
@@ -262,9 +267,14 @@ def number2base(numbers, base, string_length=None):
     while numbers.sum():
         digits.append(numbers % base)
         numbers = numbers.div(base, rounding_mode='floor')
+    # At this point, there is one column of digit per nb in numbers (so, per sample).
+    # Each column is a unique sequence in base base.
+    # If we want the output to be longer than the nb of lines, then add zeros at the ends of the sequences:
     if string_length:
         assert len(digits) <= string_length, "String length required is too small to represent numbers!"
+        assert len(digits) == string_length, "Why do we require longer encodings than there are levels??"
         digits += [torch.zeros(len(numbers), dtype=int)] * (string_length - len(digits))
+    # Now, return the (reversed) sequences as lines instead of columns
     return torch.stack(digits[::-1]).t()
 
 
@@ -288,3 +298,7 @@ def compute_true_occurrences(v, L, m, nc, model_seed):
     # if I don't care about space, can just flatten space dimensions (pay attention that they may not be ordered)!
     x = x.flatten(start_dim=1, end_dim=-2) # [nc, 2 ** (L-1), v ** 2]
     return x.permute(0, 2, 1) * mul # N(\alpha, \mu, j)
+
+
+if __name__ == '__main__':
+    rhm = RandomHierarchyModel(num_features=2, m=2, num_layers=3, num_classes=2, max_dataset_size=10, )
