@@ -308,6 +308,7 @@ def get_encodings(model, features, v, bs=400):
     for l in all_encs_per_layer:
         all_encs_per_layer[l] = torch.cat(all_encs_per_layer[l]).detach()
     # probably one of with torch.no_grad(), .detach() is superfluous
+    # TODO actually this is not enough. At the end, the computed sensitivities still require_grad.
     return all_encs_per_layer
 
 
@@ -333,35 +334,55 @@ def fig3_figure(syn_sensitivity_per_p, noise_sensitivity_per_p, args=None):
     """
     Ps = sorted(syn_sensitivity_per_p.keys())
     transfo_levels = sorted(set(syn_sensitivity_per_p[Ps[0]]).intersection(set(noise_sensitivity_per_p[Ps[0]])))
-    fig, axs = plt.subplots(1, len(transfo_levels), sharex=True, sharey=True)
+    fig, axs = plt.subplots(len(transfo_levels), 1, figsize=(9,9), sharex=True, sharey=True)
     for ltransfo, ax in zip(transfo_levels, axs):
         if args is not None:
             Pl = args.num_features*args.m**(2*ltransfo-1)/(1-args.m/args.num_features**(args.s-1))
+            print(Pl)
             for a in axs:
                 a.axvline(Pl, linestyle="--", color="grey")
         for lenc in syn_sensitivity_per_p[Ps[0]][ltransfo]:
             ratios = []
             for P in Ps:
-                ratios.append(syn_sensitivity_per_p[P][ltransfo][lenc]/noise_sensitivity_per_p[P][ltransfo][lenc])
+                ratios.append(syn_sensitivity_per_p[P][ltransfo][lenc].detach()/noise_sensitivity_per_p[P][ltransfo][lenc].detach())
             ax.plot(Ps, ratios, label=f"layer {lenc}", marker="+")
         ax.set_xlabel("Training set size P")
         ax.set_ylabel(f"r/s for transfo of level {ltransfo}")
+        ax.set_xscale('log')
     ax.legend()
+    ax.set_xlim(100, 1e6)
+    ax.set_ylim(-0.1, 1.1)
     plt.show()
 
 
-def full_algo(folder, max_ds_size=20000, save=False, load=True):
+def full_algo(folder, max_ds_size=20000, n_versions=10, save=True, load=True):
     """
-    All runs in folder should have been trained on the same values of m, n, s etc
+    All runs in folder should have been trained on the same values of m, n, s etc; and there should be one run per
+    value of P (trainset size)
     """
     runs_list = [os.path.join(folder, x) for x in os.listdir(folder) if x.endswith(".pk") and not x.endswith("clf.pk")]
 
+    save_folder = f"sensitivity_data_{n_versions}transfos_dssize{max_ds_size}"
+    # save_folder = f"sensitivity_data"
     if save:
-        os.makedirs(os.path.join(folder, "sensitivity_data"), exist_ok=True)
+        os.makedirs(os.path.join(folder, save_folder), exist_ok=True)
 
     with open(runs_list[0], "rb") as f:
         args = pk.load(f)
         data = pk.load(f)
+
+    if load:
+        try:
+            with open(os.path.join(folder, save_folder, "R_syn_sensitivity.pk"), "rb") as f:
+                syn_sensitivity_per_p = pk.load(f)
+            with open(os.path.join(folder, save_folder, "S_noise_sensitivity.pk"), "rb") as f:
+                noise_sensitivity_per_p = pk.load(f)
+        except:
+            pass
+        else:
+            print("Working on graphics...")
+            fig3_figure(syn_sensitivity_per_p, noise_sensitivity_per_p, args)
+            return
 
     args.device = "cpu"
     args.last_lin_layer = 0
@@ -372,16 +393,23 @@ def full_algo(folder, max_ds_size=20000, save=False, load=True):
     model.losses = None
 
     print("Creating datasets")
-    base_features, syns, nois = create_datasets(args, max_ds_size=max_ds_size)
+    base_features, syns, nois = create_datasets(args, n_versions=n_versions, max_ds_size=max_ds_size)
     # base features: nb_data, len
     # syns and nois: dict l_transfo -> list, for each version, of transformed features (each: nb_data, len)
 
-    print("Computing base encodings")
-    base_encs = create_base_encodings_dataset(model, base_features, v=args.num_features)
+    if load:
+        try:
+            with open(os.path.join(folder, save_folder, "base_encodings.pk"), "rb") as f:
+                base_encs = pk.load(f)
+        except:
+            load = False
+    if not load:
+        print("Computing base encodings")
+        base_encs = create_base_encodings_dataset(model, base_features, v=args.num_features)
     # base_encs: lenc -> encodings (nb_data, len)
 
     if save:
-        with open(os.path.join(folder, "sensitivity_data", "base_encodings.pk"), "wb") as f:
+        with open(os.path.join(folder, save_folder, "base_encodings.pk"), "wb") as f:
             pk.dump(base_encs, f)
 
     syn_sensitivity_per_p = {}
@@ -389,27 +417,32 @@ def full_algo(folder, max_ds_size=20000, save=False, load=True):
 
     print("Going through saved models")
     for file in runs_list:
-        if "13" in file:
+        if "13" in file:   # TODO remove
             continue
         print(f"Doing file {os.path.basename(file)}")
         with open(file, "rb") as f:
             args2 = pk.load(f)
             data = pk.load(f)
-        state_dict = data["last"]
-        tbdel = []
-        for k in state_dict.keys():
-            if k.startswith("losses"):
-                tbdel.append(k)  # cannot delete keys during iteration
-        for k in tbdel:
-            del state_dict[k]
 
-        model.load_state_dict(state_dict)
+        if load:
+            with open(os.path.join(folder, save_folder, f"{os.path.basename(file)}_encodings.pk"), "rb") as f:
+                syns_encs, nois_encs = pk.load(f)
+        else:
+            state_dict = data["last"]
+            tbdel = []
+            for k in state_dict.keys():
+                if k.startswith("losses"):
+                    tbdel.append(k)  # cannot delete keys during iteration
+            for k in tbdel:
+                del state_dict[k]
 
-        syns_encs, nois_encs = create_transfo_encodings_datasets(model, syns, nois, v=args.num_features)
+            model.load_state_dict(state_dict)
+
+            syns_encs, nois_encs = create_transfo_encodings_datasets(model, syns, nois, v=args.num_features)
         # syns_encs and nois_encs: dict l_transfo -> [lencs -> list for each version, of transformed encs (each (nb_data, len))]
 
         if save:
-            with open(os.path.join(folder, "sensitivity_data", f"{os.path.basename(file)}_encodings.pk"), "wb") as f:
+            with open(os.path.join(folder, save_folder, f"{os.path.basename(file)}_encodings.pk"), "wb") as f:
                 pk.dump((syns_encs, nois_encs), f)
 
         syn_sensitivity = {ltransfo:
@@ -427,14 +460,16 @@ def full_algo(folder, max_ds_size=20000, save=False, load=True):
         noise_sensitivity_per_p[args2.ptr] = noise_sensitivity
 
     if save:
-        with open(os.path.join(folder, "sensitivity_data", "R_syn_sensitivity.pk"), "wb") as f:
+        with open(os.path.join(folder, save_folder, "R_syn_sensitivity.pk"), "wb") as f:
             pk.dump(syn_sensitivity_per_p, f)
-        with open(os.path.join(folder, "sensitivity_data", "S_noise_sensitivity.pk"), "wb") as f:
+        with open(os.path.join(folder, save_folder, "S_noise_sensitivity.pk"), "wb") as f:
             pk.dump(noise_sensitivity_per_p, f)
 
     print("Working on graphics...")
-    fig3_figure(syn_sensitivity_per_p, noise_sensitivity_per_p)
+    fig3_figure(syn_sensitivity_per_p, noise_sensitivity_per_p, args)
 
 
 if __name__ == '__main__':
-    full_algo("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/fig3_paper2", max_ds_size=5000, save=True, load=True)
+    full_algo("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/fig3_paper2",
+              max_ds_size=200, n_versions=2,
+              save=False, load=False)
