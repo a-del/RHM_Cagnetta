@@ -1,12 +1,17 @@
 import numpy as np
+import matplotlib.pyplot as plt
 import torch
+import torch.nn.functional as F
 import argparse
+import os
+import pickle as pk
+from tqdm import tqdm
 
 from datasets import RandomHierarchyModel
 from datasets.hierarchical import number2base
 from datasets.hierarchical import number2base as dec2base
 from datasets.random_hierarchy_model import RandomHierarchyModel as RandomHierarchyModel2
-
+from main import set_up
 
 seed = 999
 
@@ -263,39 +268,46 @@ def create_datasets(args, n_versions=5, max_ds_size=20000):
     return base_features, syns, nois
 
 
-def create_encodings_datasets(model, base_features, synsd, noisd, bs=400):
+def create_base_encodings_dataset(model, base_features, v, bs=400):
     # todo? could optimize and not compute and store several times features that are found multiple times across
     #  base_features, syns[:], and nois[:]
     base_encs = {}
-    for l, encs in get_encodings(model, base_features, bs).items():
+    for l, encs in get_encodings(model, base_features, v, bs).items():
         base_encs[l] = encs
+    return base_encs
 
+def create_transfo_encodings_datasets(model, synsd, noisd, v, bs=400):
+    # todo? could optimize and not compute and store several times features that are found multiple times across
+    #  base_features, syns[:], and nois[:]
     syns_per_ltransfo = {}
     for ltransfo, syns in synsd.items():
+        print(f"    transfo level {ltransfo}", end="\n        ", flush=True)
         syns_per_ltransfo[ltransfo] = {l: [] for l in range(model.num_layers)}
-        for synonyms in syns:
-            for l, encs in get_encodings(model, synonyms, bs).items():
-                syns_per_ltransfo[ltransfo][l].append(get_encodings(model, synonyms, bs))
+        for synonyms in tqdm(syns):
+            for l, encs in get_encodings(model, synonyms, v, bs).items():
+                syns_per_ltransfo[ltransfo][l].append(encs)
     nois_per_ltransfo = {}
     for ltransfo, nois in noisd.items():
         nois_per_ltransfo[ltransfo] = {l: [] for l in range(model.num_layers)}
         for noisy in nois:
-            for l, encs in get_encodings(model, noisy, bs).items():
+            for l, encs in get_encodings(model, noisy, v, bs).items():
                 nois_per_ltransfo[ltransfo][l].append(encs)
-    return base_encs, syns_per_ltransfo, nois_per_ltransfo
+    return syns_per_ltransfo, nois_per_ltransfo
 
 
-def get_encodings(model, features, bs=400):
+def get_encodings(model, features, v, bs=400):
     N = len(features)
-    features_1hot = ...(features)   # TODO
+    features_1hot = F.one_hot(features.long(), num_classes=v).float().permute(0, 2, 1)  # batch, nb_channels, length
     all_encs_per_layer = {l: [] for l in range(model.num_layers)}
-    for k in range(int(np.ceil(N, bs))):
-        y, outs, pres = model(features_1hot[k * bs:(k + 1 * bs)])
-        # pres: list of shape (bs, chans, len) for each layer
-        for l, pre in enumerate(pres):
-            all_encs_per_layer[l].append(pre)
+    with torch.no_grad():
+        for k in range(int(np.ceil(N/bs))):
+            y, outs, pres = model(features_1hot[k * bs:(k + 1 * bs)])
+            # pres: list of shape (bs, chans, len) for each layer
+            for l, pre in enumerate(pres):
+                all_encs_per_layer[l].append(pre)
     for l in all_encs_per_layer:
-        all_encs_per_layer[l] = torch.cat(all_encs_per_layer[l])
+        all_encs_per_layer[l] = torch.cat(all_encs_per_layer[l]).detach()
+    # probably one of with torch.no_grad(), .detach() is superfluous
     return all_encs_per_layer
 
 
@@ -310,67 +322,119 @@ def compute_sensitivity(base_encs, other_encs):
     others = torch.stack(other_encs, dim=0)   # nv, nb_data, chans, len
     others = (others - mean) / std
 
-    sensitivity = base*others.sum(dim=2)  # dot product over chans   # nv, nb_data, len
+    sensitivity = (base*others).sum(dim=2)  # dot product over chans   # nv, nb_data, len
     sensitivity = sensitivity.mean()
     return sensitivity
 
 
+def fig3_figure(syn_sensitivity_per_p, noise_sensitivity_per_p, args=None):
+    """
+    syn_sensitivity_per_p and noise_sensitivity_per_p: dict P -> [ltransfo -> (lenc -> sensitivity)]
+    """
+    Ps = sorted(syn_sensitivity_per_p.keys())
+    transfo_levels = sorted(set(syn_sensitivity_per_p[Ps[0]]).intersection(set(noise_sensitivity_per_p[Ps[0]])))
+    fig, axs = plt.subplots(1, len(transfo_levels), sharex=True, sharey=True)
+    for ltransfo, ax in zip(transfo_levels, axs):
+        if args is not None:
+            Pl = args.num_features*args.m**(2*ltransfo-1)/(1-args.m/args.num_features**(args.s-1))
+            for a in axs:
+                a.axvline(Pl, linestyle="--", color="grey")
+        for lenc in syn_sensitivity_per_p[Ps[0]][ltransfo]:
+            ratios = []
+            for P in Ps:
+                ratios.append(syn_sensitivity_per_p[P][ltransfo][lenc]/noise_sensitivity_per_p[P][ltransfo][lenc])
+            ax.plot(Ps, ratios, label=f"layer {lenc}", marker="+")
+        ax.set_xlabel("Training set size P")
+        ax.set_ylabel(f"r/s for transfo of level {ltransfo}")
+    ax.legend()
+    plt.show()
 
-def full_algo():
-    parser = argparse.ArgumentParser()
-    args = parser.parse_args()
-    # TODO load model...
-    model = None
-    # TODO set layerwise = True
 
-    base_features, syns, nois = create_datasets(args)
+def full_algo(folder, max_ds_size=20000, save=False, load=True):
+    """
+    All runs in folder should have been trained on the same values of m, n, s etc
+    """
+    runs_list = [os.path.join(folder, x) for x in os.listdir(folder) if x.endswith(".pk") and not x.endswith("clf.pk")]
+
+    if save:
+        os.makedirs(os.path.join(folder, "sensitivity_data"), exist_ok=True)
+
+    with open(runs_list[0], "rb") as f:
+        args = pk.load(f)
+        data = pk.load(f)
+
+    args.device = "cpu"
+    args.last_lin_layer = 0
+    args.layerwise = 1
+
+    print("Creating NN")
+    _, _, model, _ = set_up(args, net=True, crit=False, datasets=False)
+    model.losses = None
+
+    print("Creating datasets")
+    base_features, syns, nois = create_datasets(args, max_ds_size=max_ds_size)
     # base features: nb_data, len
     # syns and nois: dict l_transfo -> list, for each version, of transformed features (each: nb_data, len)
-    base_encs, syns_encs, nois_encs = create_encodings_datasets(model, base_features, syns, nois)
+
+    print("Computing base encodings")
+    base_encs = create_base_encodings_dataset(model, base_features, v=args.num_features)
     # base_encs: lenc -> encodings (nb_data, len)
-    # syns_encs and nois_encs: dict l_transfo -> [lencs -> list for each version, of transformed encs (each (nb_data, len))]
 
-    syn_sensitivity = {ltransfo:
-                           {lenc:
-                                compute_sensitivity(base_encs[lenc], syns_encs[ltransfo][lenc])
-                            for lenc in syns_encs[ltransfo]}
-                       for ltransfo in syns_encs}
-    noise_sensitivity = {ltransfo:
-                           {lenc:
-                                compute_sensitivity(base_encs[lenc], nois_encs[ltransfo][lenc])
-                            for lenc in nois_encs[ltransfo]}
-                       for ltransfo in nois_encs}
+    if save:
+        with open(os.path.join(folder, "sensitivity_data", "base_encodings.pk"), "wb") as f:
+            pk.dump(base_encs, f)
 
-    # TODO need this for different models trained with different Ps
-    
+    syn_sensitivity_per_p = {}
+    noise_sensitivity_per_p = {}
 
+    print("Going through saved models")
+    for file in runs_list:
+        if "13" in file:
+            continue
+        print(f"Doing file {os.path.basename(file)}")
+        with open(file, "rb") as f:
+            args2 = pk.load(f)
+            data = pk.load(f)
+        state_dict = data["last"]
+        tbdel = []
+        for k in state_dict.keys():
+            if k.startswith("losses"):
+                tbdel.append(k)  # cannot delete keys during iteration
+        for k in tbdel:
+            del state_dict[k]
 
+        model.load_state_dict(state_dict)
 
+        syns_encs, nois_encs = create_transfo_encodings_datasets(model, syns, nois, v=args.num_features)
+        # syns_encs and nois_encs: dict l_transfo -> [lencs -> list for each version, of transformed encs (each (nb_data, len))]
 
+        if save:
+            with open(os.path.join(folder, "sensitivity_data", f"{os.path.basename(file)}_encodings.pk"), "wb") as f:
+                pk.dump((syns_encs, nois_encs), f)
 
+        syn_sensitivity = {ltransfo:
+                               {lenc:
+                                    compute_sensitivity(base_encs[lenc], syns_encs[ltransfo][lenc])
+                                for lenc in syns_encs[ltransfo]}
+                           for ltransfo in syns_encs}
+        noise_sensitivity = {ltransfo:
+                               {lenc:
+                                    compute_sensitivity(base_encs[lenc], nois_encs[ltransfo][lenc])
+                                for lenc in nois_encs[ltransfo]}
+                           for ltransfo in nois_encs}
 
+        syn_sensitivity_per_p[args2.ptr] = syn_sensitivity
+        noise_sensitivity_per_p[args2.ptr] = noise_sensitivity
 
+    if save:
+        with open(os.path.join(folder, "sensitivity_data", "R_syn_sensitivity.pk"), "wb") as f:
+            pk.dump(syn_sensitivity_per_p, f)
+        with open(os.path.join(folder, "sensitivity_data", "S_noise_sensitivity.pk"), "wb") as f:
+            pk.dump(noise_sensitivity_per_p, f)
 
-
-# load a trained model (or train it?)
-
-# compute encodings of all pts of dataset
-# standardise encodings
-
-
-# we need to associate the encodings with the whole coding structure of the RHM
-#  could store sampled paths, xs and ys together in rhm?
+    print("Working on graphics...")
+    fig3_figure(syn_sensitivity_per_p, noise_sensitivity_per_p)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-
-    # Hierarchical dataset #
-    parser.add_argument("--num_features", type=int, default=4)  # v
-    parser.add_argument("--m", type=int, default=2)
-    parser.add_argument("--s", type=int, default=2)
-    parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--num_classes", type=int, default=3)
-
-    args = parser.parse_args()
-    create_datasets(args, max_ds_size=1000)
+    full_algo("/Volumes/lcncluster/delrocq/code/RHM_Cagnetta/logs/fig3_paper2", max_ds_size=5000, save=True, load=True)

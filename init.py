@@ -10,7 +10,7 @@ def unpickle(file):
         dict = pickle.load(fo)
     return dict
 
-def init_fun(args):
+def init_fun(args, datasets=True):
     """
         Initialize dataset and architecture.
     """
@@ -18,14 +18,17 @@ def init_fun(args):
 
     trainset, testset, input_dim, ch = dataset_initialization(args)
 
-    trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    if datasets:
+        trainloader = torch.utils.data.DataLoader(
+            trainset, batch_size=args.batch_size, shuffle=True, num_workers=0)
 
-    if testset:
-        testloader = torch.utils.data.DataLoader(
-            testset, batch_size=100, shuffle=False, num_workers=0)
+        if testset:
+            testloader = torch.utils.data.DataLoader(
+                testset, batch_size=100, shuffle=False, num_workers=0)
+        else:
+            testloader = None
     else:
-        testloader = None
+        trainloader, testloader = None, None
 
     net = model_initialization(args, input_dim=input_dim, ch=ch)
 

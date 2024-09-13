@@ -170,7 +170,9 @@ def run(args, trainloader, testloader, net0, criterion):
     yield out, net
 
 
-def set_up(args, net=True, crit=True):
+def set_up(args, net=True, crit=True, datasets=None):
+    if datasets is None:
+        datasets = net
     if crit:
         if args.loss == 'clapp_unsup':
             criterion = None
@@ -180,7 +182,7 @@ def set_up(args, net=True, crit=True):
         criterion = None
 
     if net:
-        trainloader, testloader, net0 = init_fun(args)
+        trainloader, testloader, net0 = init_fun(args, datasets=datasets)
         # if args.loss == "clapp_unsup":
         #     testloader = None
     else:

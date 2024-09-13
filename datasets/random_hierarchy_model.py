@@ -188,9 +188,9 @@ class RandomHierarchyModel(Dataset):
         self.tuple_size = tuple_size
 
         self.rules = sample_rules( num_features, num_classes, num_synonyms, tuple_size, num_layers, seed=seed_rules)
- 
-        max_data = min(num_classes * num_synonyms ** ((tuple_size ** num_layers - 1) // (tuple_size - 1)),
-                       max_dataset_size)
+
+        Pmax = num_classes * num_synonyms ** ((tuple_size ** num_layers - 1) // (tuple_size - 1))
+        max_data = min(Pmax, max_dataset_size)
         assert train_size >= -1, "train_size must be greater than or equal to -1"
 
         if max_data > sys.maxsize and not replacement:
@@ -206,7 +206,8 @@ class RandomHierarchyModel(Dataset):
         if not replacement:
 
             if train_size == -1:
-                self.samples = torch.arange( max_data)
+                random.seed(seed_sample)
+                self.samples = torch.tensor(random.sample(range(Pmax), max_data))
 
             else:
                 test_size = min( test_size, max_data-train_size)
