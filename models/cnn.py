@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from optim_loss import CLAPPUnsupervisedHalfMasking
+from optim_loss import CLAPPUnsupervisedHalfMasking, MaskInputs, CLAPPUnsupervisedNoMasking
 
 
 class NonOverlappingConv1d(nn.Module):
@@ -43,16 +43,16 @@ class NonOverlappingConv1dReLU(NonOverlappingConv1d):
         super(NonOverlappingConv1dReLU, self).__init__(input_channels, out_channels, out_dim, patch_size, bias)
         self.relu = nn.ReLU()
 
-    def forward(self, xx, x):   # xx is unused; it serves only the fact that this module
+    def forward(self, x):   # xx is unused; it serves only the fact that this module
         # returns (pre-activations, output) and must be stackable
         pre = super(NonOverlappingConv1dReLU, self).forward(x)
-        return pre, self.relu(pre)
+        return self.relu(pre)
 
 
 class CNN(nn.Module):
     def __init__(self, input_channels, h, out_dim, num_layers, patch_size=2, bias=False, layerwise=False,
                  last_lin_layer=True, loss=None, k_predictions=1, prop_hidden=0.5, detach_c=False,
-                 random_masking=False, masking_axis=None):
+                 random_masking=False, masking_axis=None, mask_input=False):
         super(CNN, self).__init__()
 
         self.num_layers = num_layers
@@ -64,6 +64,10 @@ class CNN(nn.Module):
         else:
             self.h = [h for _ in range(num_layers)]
         self.out_dim_beta = out_dim
+        self.mask_input = mask_input
+
+        if self.mask_input:
+            self.masker = MaskInputs(d, k_predictions, prop_hidden, random_masking)
 
         self.hier = nn.Sequential(
             NonOverlappingConv1dReLU(
@@ -86,13 +90,18 @@ class CNN(nn.Module):
         if loss == "clapp_unsup":
             if last_lin_layer:
                 raise NotImplementedError
+            # TODO create loss that does not mask encodings etc for mask_input
+            if self.mask_input:
+                loss_class = CLAPPUnsupervisedNoMasking
+            else:
+                loss_class = CLAPPUnsupervisedHalfMasking
             if self.layerwise:
-                self.losses = nn.ModuleList([CLAPPUnsupervisedHalfMasking(
+                self.losses = nn.ModuleList([loss_class(
                     self.h[l], d // patch_size**(l+1), k_predictions=k_predictions, prop_hidden=prop_hidden,
                     detach_c=detach_c, random_masking=random_masking, masking_axis=masking_axis)
                                              for l in range(0, num_layers)])
             else:
-                self.losses = CLAPPUnsupervisedHalfMasking(self.h[-1], d // (patch_size**num_layers),
+                self.losses = loss_class(self.h[-1], d // (patch_size**num_layers),
                                                            k_predictions=k_predictions, prop_hidden=prop_hidden,
                                                            detach_c=detach_c, random_masking=random_masking,
                                                            masking_axis=masking_axis)
@@ -107,17 +116,20 @@ class CNN(nn.Module):
         self.beta = nn.Parameter(torch.randn(self.h[-1], self.out_dim_beta))
 
     def forward(self, x):
+        if self.mask_input:
+            with torch.no_grad():
+                x = self.masker(x)
         pres = []
         outs = []
         if self.layerwise:
             y = x[..., :self.d]
             for mod in self.hier:
-                pre, y = mod(None, y.detach())
-                pres.append(pre)
+                y = mod(y.detach())
+                # pres.append(pre)
                 outs.append(y)
         else:
-            pre, y = self.hier(x[..., :self.d]) # modification to look at a part of the input only if the hierarchy is not deep enough
-            pres.append(pre)
+            y = self.hier(x[..., :self.d]) # modification to look at a part of the input only if the hierarchy is not deep enough
+            # pres.append(pre)
             outs.append(y)
         y = y.mean(dim=[-1])   # last dimension (space) should already be of size 1, so equivalent to squeeze(-1)
         if self.beta is not None:

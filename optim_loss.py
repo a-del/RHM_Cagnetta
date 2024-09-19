@@ -1,4 +1,5 @@
 from functools import partial
+import itertools
 
 import torch
 from torch import nn
@@ -90,7 +91,7 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
                 mask = self.masks[k]
                 if device >= 0:
                     mask = mask.to(device)
-                batch_mask = torch.vmap(partial(torch.masked_select, mask=mask))
+                batch_mask = torch.vmap(partial(torch.masked_select, mask=mask))   # TODO checkout what this does!! does it selected only unmasked features, and since they change from mask to mask, impose a form of order in them?
                 batch_anti_mask = torch.vmap(partial(torch.masked_select, mask=~mask))
                 z = batch_mask(reprs)
                 c = batch_anti_mask(reprs)
@@ -141,6 +142,101 @@ class CLAPPUnsupervisedHalfMasking(nn.Module):
             self.masks = [mask.reshape(-1, self.leng) for mask in self.masks]
             # each: 1, leng or c_in, leng
 
+
+class CLAPPUnsupervisedNoMasking(nn.Module):
+    """
+    Computes the CLAPP loss using no labels.
+    Supposes that input is of size bs*(k+1) instead of bs, where for each element of the original batch there is one
+    input that has prop_hidden masked indices in its spatial dimension, and the following k elements are the same
+    with different 1-prop_hidden masked indices.
+    """
+    def __init__(self, c_in, leng, k_predictions=1, detach_c=False, either_pos_or_neg=False, **kwargs):
+        super().__init__()
+        self.k_predictions = k_predictions
+        self.detach_c = detach_c
+
+        input_size = c_in*leng
+        self.c_in = c_in
+        self.leng = leng
+        self.input_size = input_size
+        z_size = self.input_size
+        c_size = self.input_size
+
+        self.Wpred = nn.ModuleList(nn.Linear(c_size, z_size, bias=False) for _ in range(k_predictions))
+
+    def forward(self, reprs: torch.Tensor, y):
+        # reprs: b, chans, len
+        b, chans, leng = reprs.size()
+        b = b // (self.k_predictions+1)
+
+        b_tot = b * self.k_predictions
+        c = reprs.reshape(b, self.k_predictions+1, chans, leng)[:, 1:].reshape(b_tot, chans, leng)
+        z = reprs[::self.k_predictions+1].reshape(b, 1, chans, leng).repeat(1, self.k_predictions, 1, 1)   # b, k , c, l
+
+        if self.detach_c:
+            c = c.detach()
+        zhat = self.Wpred[0](c.reshape(b_tot, chans * leng)).reshape(b, self.k_predictions, chans * leng)
+        # b, k, c*l
+
+        # positive samples:
+        u_pos = torch.einsum("bkij,bkjl->bk", z.reshape(b, self.k_predictions, 1, -1), zhat.unsqueeze(3))   # b, k
+        loss_pos = ((1 - u_pos).relu()).mean()
+
+        # negative samples: shuffle zhat along batch dimension such that predictions are across 2 different words
+        idx = torch.randperm(b_tot)
+        zhat_shuf = zhat.reshape(b_tot, chans * leng)[idx]
+        u_neg = torch.einsum("bkij,bkjl->bk", z.reshape(b_tot, self.k_predictions, 1, -1), zhat_shuf.unsqueeze(3))   # b, k
+        loss_neg = ((1 + u_neg).relu()).mean()
+
+        loss = (loss_pos + loss_neg) / 2
+        return loss
+
+
+class MaskInputs(nn.Module):
+    def __init__(self, leng, k_predictions=1, prop_hidden=0.5, random_masking=False,
+                 either_pos_or_neg=False):
+        if either_pos_or_neg or not random_masking:
+            raise NotImplementedError
+        # TODO prop_hidden=0.5 might be way too hard, but if we always do the symmetric (do we?), then smaller is worse in the sym case
+        super().__init__()
+        self.leng = leng
+        self.k_predictions = k_predictions
+        self.random_masking = random_masking
+        self.n_shown = max(1, int(self.leng * (1 - prop_hidden)))
+        self.n_masked = self.leng - self.n_shown
+
+    def forward(self, x):
+        # x: bs, chans, leng
+        bs, chans, leng = x.size()
+        device = x.get_device()
+        x = x.repeat(self.k_predictions+1, 1, 1, 1   # k_preds+1, bs, chans, leng
+                     ).permute(1, 0, 2, 3).reshape(-1, chans, leng)   # bs*(k_preds+1), chans, leng
+        if not self.random_masking:
+            mask = self._build_mask(batch_size=bs, device=device)
+        return x*mask
+
+    def _build_mask(self, batch_size=None, device=None):
+        if self.random_masking:
+            mask = torch.tensor(np.stack(itertools.chain(
+            [rd.choice([True for _ in range(self.n_shown)] + [False for _ in range(self.n_masked)],
+                      size=(self.leng,), replace=False)
+            ] + [rd.choice([True for _ in range(self.n_masked)] + [False for _ in range(self.n_shown)],
+                          size=(self.leng,), replace=False)
+                 for _ in range(self.k_predictions)
+            ]
+            for _ in range(batch_size))),
+            device=device if device >= 0 else "cpu").unsqueeze(1)   # ((k+1)*b, 1, leng)
+
+            return mask
+        else:
+            pass
+            # self.masks = [
+            #     torch.tensor(rd.choice([True for _ in range(self.n_shown)] + [False for _ in range(self.n_masked)],
+            #                            size=(self.n_shown+self.n_masked,), replace=False))
+            #     for _ in range(self.k_predictions)]
+            # # each: input_size, or leng,
+            # self.masks = [mask.reshape(-1, self.leng) for mask in self.masks]
+            # # each: 1, leng or c_in, leng
 
 def regularize(loss, f, l, reg_type):
     """

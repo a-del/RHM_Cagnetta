@@ -386,6 +386,7 @@ def main():
                                                                    "but different random masking every time")
     parser.add_argument("--mask_axis", type=str, default="none",
                         help="whether to mask along a certain axis (space or chan or none")
+    parser.add_argument("--mask_input", type=int, default=0, help="mask input instead of masking encodings")
 
     parser.add_argument(
         "--alpha", default=1.0, type=float, help="alpha-trick parameter"
